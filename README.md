@@ -6,65 +6,108 @@ Related blog post: [How rep+ Helped Me Identify a Critical Supabase JWT Exposure
 
 ## Setup
 
-First, export the required environment variables:
+### 1. Create and activate a virtual environment
 
 ```bash
-export SUPABASE_URL=https://xxxx.supabase.co
-export SUPABASE_APIKEY=ANON_KEY
-export SUPABASE_JWT=JWT_TOKEN
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+### 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
 ```
 
 ## Usage
 
-Run the script:
+### Scan a single website
 
 ```bash
+python supabase-exposure-check.py --url https://example.com
+```
+
+### Scan multiple websites from a file
+
+Create a `sites.txt` file with one URL per line:
+
+```
+https://example.com
+https://another-site.com
+```
+
+Then run:
+
+```bash
+python supabase-exposure-check.py --file sites.txt
+# Or simply (if sites.txt exists):
 python supabase-exposure-check.py
 ```
 
 The script will:
-1. Enumerate all REST-exposed tables
-2. Test whether each table was readable
-3. Safely dump readable data as JSON (read-only)
+1. Scan the website's JavaScript files for exposed Supabase JWTs
+2. Enumerate all REST-exposed tables
+3. Test whether each table was readable
+4. Safely dump readable data as JSON (read-only)
 
-Output is saved to the `dump/` directory (one JSON file per table), along with a `_summary.json` file containing the results.
+Output is saved to the `output/` directory (by default), organized by domain, with tables in a `tables/` subdirectory.
+
+## Command-line Options
+
+- `--url`: Single website URL to scan
+- `--file`, `-f`: File containing list of URLs to scan (one per line)
+- `--output`, `-o`: Output directory (default: `output`)
 
 ## Example Output
 
 ```bash
-python3 supabase-exposure-check.py 
-[*] Enumerating exposed tables...
-[+] Found 34 tables
+$ python3 supabase-exposure-check.py -f sites.txt -o output
+[*] Scanning 2 site(s)
 
-[*] Dumping table: m█████████s
-    [+] Dumped 38180 rows → dump/m█████████s.json
-[*] Dumping table: a██s
-    [+] Dumped 2168 rows → dump/a██s.json
-[*] Dumping table: s██e██ed_██sts
-    [+] Dumped 792 rows → dump/s██e██ed_██sts.json
-[*] Dumping table: i████tions
-    [+] Dumped 0 rows → dump/i████tions.json
-[*] Dumping table: product_██ases
-    [+] Dumped 9938 rows → dump/product_██ases.json
-[*] Dumping table: us██_age
-    [+] Dumped 0 rows → dump/us██_age.json
-[*] Dumping table: user_████s██_access
+🌐 Scanning https://www.example-site.com/
+  🚨 VULNERABLE: Supabase JWT exposed
+  [+] Found 21 tables
+    [+] triage_tickets: 0 rows - Public data (no sensitive fields detected)
+    [+] brands: 7 rows - Public data (no sensitive fields detected)
+    [-] lms_user_progress: blocked
+    🚨 projects_with_details: 539 rows - VULNERABLE (high) - Sensitive fields: user_id, supabase_anon_key, supabase_service_role_key, user_email
+    🚨 users: 488 rows - VULNERABLE (high) - Sensitive fields: email
+
+  ⚠️  VULNERABILITY SUMMARY:
+     - Critical: 0 table(s)
+     - High: 2 table(s)
+     - Medium: 0 table(s)
+     - Total vulnerable: 2/16 accessible tables
+
+🌐 Scanning https://another-example.com/
+  🚨 VULNERABLE: Supabase JWT exposed
+  [+] Found 8 tables
+    🚨 newsletters: 389 rows - VULNERABLE (medium) - Sensitive fields: location
+    [+] newsletter_categories: 897 rows - Public data (no sensitive fields detected)
+    🚨 users: 495 rows - VULNERABLE (high) - Sensitive fields: email, location
+    🚨 upvotes: 3513 rows - VULNERABLE (medium) - Sensitive fields: user_id
+
+  ⚠️  VULNERABILITY SUMMARY:
+     - Critical: 0 table(s)
+     - High: 1 table(s)
+     - Medium: 3 table(s)
+     - Total vulnerable: 4/8 accessible tables
 ```
 
-## Command-line Options
+The script automatically identifies:
+- **Public tables**: Safe to expose (no sensitive fields detected)
+- **Blocked tables**: Protected by Row Level Security (RLS) policies
+- **Vulnerable tables**: Contain sensitive information (emails, passwords, API keys, PII, etc.)
 
-You can also provide the configuration via command-line arguments instead of environment variables:
-
-```bash
-python supabase-exposure-check.py --url https://xxxx.supabase.co --apikey ANON_KEY --jwt JWT_TOKEN
-```
-
-Additional options:
-- `--out`: Output directory (default: `dump`)
-- `--page-size`: Number of rows per page (default: `1000`)
+Vulnerability levels:
+- **Critical**: Contains passwords, API keys, secrets, tokens, credit cards, SSN
+- **High**: Contains emails, phone numbers, or other high-value PII
+- **Medium**: Contains other sensitive data (user IDs, locations, etc.)
 
 ## Output
 
-The script creates:
-- Individual JSON files for each readable table in the `dump/` directory
-- A `_summary.json` file with a summary of all tested tables and their accessibility status
+For each scanned website, the script creates:
+- A directory named after the domain in the `output/` folder
+- `findings.json`: Contains discovered JWTs and Supabase URLs
+- `summary.json`: Summary of all tested tables and their accessibility status
+- `tables/` subdirectory: Individual JSON files for each readable table
