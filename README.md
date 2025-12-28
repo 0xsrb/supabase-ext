@@ -1,6 +1,6 @@
 # Supabase Exposure Check
 
-A Python script to check for exposed Supabase tables by enumerating all REST-exposed tables, testing whether each table was readable, and safely dumping readable data as JSON (read-only).
+A Python script that scans websites for exposed Supabase JWT tokens, enumerates accessible database tables, and analyzes them for sensitive data exposure. The script automatically detects sensitive information (emails, passwords, API keys, PII, financial data, etc.) and classifies vulnerability levels to identify which tables pose security risks.
 
 Related blog post: [How rep+ Helped Me Identify a Critical Supabase JWT Exposure](https://bour.ch/how-rep-helped-me-identify-a-critical-supabase-jwt-exposure/)
 
