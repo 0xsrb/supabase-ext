@@ -34,7 +34,7 @@
 
 Since this is a specialized security tool, it is distributed via GitHub Releases for full transparency.
 
-1.  **Download:** Go to the [Releases](https://github.com/YOUR_USERNAME/YOUR_REPO/releases) page and download `supabase-exposure-extension-v1.0.0.zip`.
+1.  **Download:** Go to the [Releases](https://github.com/0xsrb/supabase-ext/releases) page and download `supabase-exposure-extension-v1.0.0.zip`.
 2.  **Extract:** Unzip the downloaded file to a local folder.
 3.  **Chrome Extensions:** Open Chrome and navigate to `chrome://extensions/`.
 4.  **Developer Mode:** Toggle the **Developer mode** switch in the top-right corner.
