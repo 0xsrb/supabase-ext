@@ -1,113 +1,75 @@
-# Supabase Exposure Check
+# 🎯 Supabase Exposure Check Extension
 
-A Python script that scans websites for exposed Supabase JWT tokens, enumerates accessible database tables, and analyzes them for sensitive data exposure. The script automatically detects sensitive information (emails, passwords, API keys, PII, financial data, etc.) and classifies vulnerability levels to identify which tables pose security risks.
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Chrome](https://img.shields.io/badge/Chrome-Extension-orange.svg)
 
-Related blog post: [How rep+ Helped Me Identify a Critical Supabase JWT Exposure](https://bour.ch/how-rep-helped-me-identify-a-critical-supabase-jwt-exposure/)
+> **Stop security leaks before they happen.** Automatically scan websites for exposed Supabase JWT tokens, enumerate accessible tables, and identify sensitive data leakage.
 
-## Setup
+---
 
-### 1. Create and activate a virtual environment
+## ⚡ Key Features
 
-```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+| Feature | Description |
+| :--- | :--- |
+| **🔍 Smart Detection** | Scans external & inline JS files for Supabase Project URLs and JWTs. |
+| **🛡️ Security Audit** | Attempts to enumerate tables and sample data to identify PII, Credentials, and Secrets. |
+| **🎨 Modern UI** | Beautiful, interactive dashboard with **Dark Mode** support. |
+| **📊 Detailed Reports** | Export your findings instantly to **JSON** or **CSV** formats. |
+| **📋 Quick Actions** | One-click "Copy to Clipboard" for discovered credentials. |
+| **🔦 Advanced Filtering** | Search through discovered tables and filter by severity levels. |
 
-### 2. Install dependencies
+---
 
-```bash
-pip install -r requirements.txt
-```
+## 📸 Preview
 
-## Usage
+*(Add your screenshots here after uploading to GitHub)*
+- [Dashboard View]
+- [Vulnerability Report]
+- [Dark Mode Toggle]
 
-### Scan a single website
+---
 
+## 🚀 Installation (Developer Mode)
+
+Since this is a specialized security tool, it is distributed via GitHub Releases for full transparency.
+
+1.  **Download:** Go to the [Releases](https://github.com/YOUR_USERNAME/YOUR_REPO/releases) page and download `supabase-exposure-extension-v1.0.0.zip`.
+2.  **Extract:** Unzip the downloaded file to a local folder.
+3.  **Chrome Extensions:** Open Chrome and navigate to `chrome://extensions/`.
+4.  **Developer Mode:** Toggle the **Developer mode** switch in the top-right corner.
+5.  **Load Unpacked:** Click the **Load unpacked** button.
+6.  **Select Folder:** Choose the folder where you extracted the extension.
+
+---
+
+## 🛠️ How to Use
+
+1.  Navigate to any website you want to audit.
+2.  Click the **Supabase Security Scanner** icon in your extension bar.
+3.  Hit **Start Security Scan**.
+4.  Watch the real-time log as the extension analyzes script resources and tests API endpoints.
+5.  Review the categorized results (Critical, High, Medium, Safe).
+
+---
+
+## 🔒 Security & Privacy
+
+- **Local Execution:** All analysis and API calls are performed directly from *your* browser.
+- **No Tracking:** This extension does not track your browsing history or send data to any external servers.
+- **Open Source:** Auditable code to ensure your own security while auditing others.
+
+---
+
+## 👨‍💻 Original Tool
+
+This extension is based on the original Python CLI tool. You can still find the CLI version in the root directory:
 ```bash
 python supabase-exposure-check.py --url https://example.com
 ```
 
-### Scan multiple websites from a file
+---
 
-Create a `sites.txt` file with one URL per line:
+## 📄 License
 
-```
-https://example.com
-https://another-site.com
-```
-
-Then run:
-
-```bash
-python supabase-exposure-check.py --file sites.txt
-# Or simply (if sites.txt exists):
-python supabase-exposure-check.py
-```
-
-The script will:
-1. Scan the website's JavaScript files for exposed Supabase JWTs
-2. Enumerate all REST-exposed tables
-3. Test whether each table was readable
-4. Safely dump readable data as JSON (read-only)
-
-Output is saved to the `output/` directory (by default), organized by domain, with tables in a `tables/` subdirectory.
-
-## Command-line Options
-
-- `--url`: Single website URL to scan
-- `--file`, `-f`: File containing list of URLs to scan (one per line)
-- `--output`, `-o`: Output directory (default: `output`)
-
-## Example Output
-
-```bash
-$ python3 supabase-exposure-check.py -f sites.txt -o output
-[*] Scanning 2 site(s)
-
-🌐 Scanning https://www.example-site.com/
-  🚨 VULNERABLE: Supabase JWT exposed
-  [+] Found 21 tables
-    [+] triage_tickets: 0 rows - Public data (no sensitive fields detected)
-    [+] brands: 7 rows - Public data (no sensitive fields detected)
-    [-] lms_user_progress: blocked
-    🚨 projects_with_details: 539 rows - VULNERABLE (high) - Sensitive fields: user_id, supabase_anon_key, supabase_service_role_key, user_email
-    🚨 users: 488 rows - VULNERABLE (high) - Sensitive fields: email
-
-  ⚠️  VULNERABILITY SUMMARY:
-     - Critical: 0 table(s)
-     - High: 2 table(s)
-     - Medium: 0 table(s)
-     - Total vulnerable: 2/16 accessible tables
-
-🌐 Scanning https://another-example.com/
-  🚨 VULNERABLE: Supabase JWT exposed
-  [+] Found 8 tables
-    🚨 newsletters: 389 rows - VULNERABLE (medium) - Sensitive fields: location
-    [+] newsletter_categories: 897 rows - Public data (no sensitive fields detected)
-    🚨 users: 495 rows - VULNERABLE (high) - Sensitive fields: email, location
-    🚨 upvotes: 3513 rows - VULNERABLE (medium) - Sensitive fields: user_id
-
-  ⚠️  VULNERABILITY SUMMARY:
-     - Critical: 0 table(s)
-     - High: 1 table(s)
-     - Medium: 3 table(s)
-     - Total vulnerable: 4/8 accessible tables
-```
-
-The script automatically identifies:
-- **Public tables**: Safe to expose (no sensitive fields detected)
-- **Blocked tables**: Protected by Row Level Security (RLS) policies
-- **Vulnerable tables**: Contain sensitive information (emails, passwords, API keys, PII, etc.)
-
-Vulnerability levels:
-- **Critical**: Contains passwords, API keys, secrets, tokens, credit cards, SSN
-- **High**: Contains emails, phone numbers, or other high-value PII
-- **Medium**: Contains other sensitive data (user IDs, locations, etc.)
-
-## Output
-
-For each scanned website, the script creates:
-- A directory named after the domain in the `output/` folder
-- `findings.json`: Contains discovered JWTs and Supabase URLs
-- `summary.json`: Summary of all tested tables and their accessibility status
-- `tables/` subdirectory: Individual JSON files for each readable table
+Distributed under the MIT License. See `LICENSE` for more information.
