@@ -35,3 +35,10 @@ ENV/
 .Spotlight-V100
 .Trashes
 
+# AI/Agents
+.claude/
+.gemini/
+
+# Misc
+*.log
+tmp/

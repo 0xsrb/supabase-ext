@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Page - Supabase Exposure Check</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            color: #333;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+        h1 {
+            color: #667eea;
+            margin-top: 0;
+        }
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .info {
+            background: #d1ecf1;
+            border-left: 4px solid #17a2b8;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .code-block {
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+        }
+        .test-section h3 {
+            color: #764ba2;
+            margin-top: 0;
+        }
+        ul {
+            line-height: 1.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Supabase Security Scanner - Test Page</h1>
+
+        <div class="info">
+            <strong>How to test:</strong>
+            <ol>
+                <li>Load the Chrome Extension (see instructions below)</li>
+                <li>Click the extension icon while on THIS page</li>
+                <li>Click "Start Security Scan"</li>
+                <li>The extension should detect the Supabase credentials below</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h3>Test Case 1: Environment Variables (Safe Pattern)</h3>
+            <p>This simulates credentials embedded in a Next.js or React app:</p>
+            <div class="code-block" id="test1">
+// Configuration (This is intentionally exposed for testing)
+const config = {
+    NEXT_PUBLIC_SUPABASE_URL: "https://xyzcompany.supabase.co",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5emNvbXBhbnkiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTYxNjIzOTAyMiwiZXhwIjoxOTMxODE1MDIyfQ.test1234567890abcdef"
+};
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test Case 2: Direct Assignment</h3>
+            <p>Common in vanilla JavaScript apps:</p>
+            <div class="code-block" id="test2">
+// Supabase Client
+const supabaseUrl = 'https://demo-project.supabase.co'
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRlbW8tcHJvamVjdCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNjE2MjM5MDIyLCJleHAiOjE5MzE4MTUwMjJ9.demo9876543210fedcba'
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test Case 3: Inline Initialization</h3>
+            <p>Direct client creation:</p>
+            <div class="code-block" id="test3">
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  'https://testapp.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlc3RhcHAiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTYxNjIzOTAyMiwiZXhwIjoxOTMxODE1MDIyfQ.test0000111122223333'
+)
+            </div>
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ Note:</strong> These are FAKE credentials for testing purposes only.
+            The extension will detect them but won't be able to connect to a real Supabase instance.
+        </div>
+
+        <hr style="margin: 30px 0; border: none; border-top: 2px solid #e0e0e0;">
+
+        <h2>Loading the Extension</h2>
+        <ol>
+            <li>Open Chrome and go to <code>chrome://extensions/</code></li>
+            <li>Enable <strong>Developer mode</strong> (toggle in top-right)</li>
+            <li>Click <strong>"Load unpacked"</strong></li>
+            <li>Select the <code>supabase-exposure-check</code> folder</li>
+            <li>The extension should appear in your toolbar</li>
+            <li>Come back to this page and click the extension icon</li>
+        </ol>
+
+        <h2>Expected Results</h2>
+        <ul>
+            <li>✓ Extension should find 3 Supabase URLs</li>
+            <li>✓ Extension should find 3 JWT tokens</li>
+            <li>✓ Connection test will fail (fake credentials)</li>
+            <li>✓ You should see error: "Failed to connect to Supabase API"</li>
+        </ul>
+
+        <div class="info">
+            <strong>💡 To test with real data:</strong><br>
+            Visit a live website that uses Supabase (like demo apps or your own projects)
+            and run the scan there to see full functionality.
+        </div>
+    </div>
+
+    <!-- Inline scripts for the extension to scan -->
+    <script>
+        // Test Case 1 - Environment style
+        const VITE_SUPABASE_URL = "https://xyzcompany.supabase.co";
+        const VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5emNvbXBhbnkiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTYxNjIzOTAyMiwiZXhwIjoxOTMxODE1MDIyfQ.test1234567890abcdef";
+
+        // Test Case 2 - Direct assignment
+        const supabaseUrl = 'https://demo-project.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRlbW8tcHJvamVjdCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNjE2MjM5MDIyLCJleHAiOjE5MzE4MTUwMjJ9.demo9876543210fedcba';
+
+        // Test Case 3 - Object config
+        const config = {
+            supabaseURL: 'https://testapp.supabase.co',
+            anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlc3RhcHAiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTYxNjIzOTAyMiwiZXhwIjoxOTMxODE1MDIyfQ.test0000111122223333'
+        };
+
+        console.log('Test page loaded - extension should detect these credentials');
+    </script>
+</body>
+</html>
