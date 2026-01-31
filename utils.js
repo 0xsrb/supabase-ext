@@ -65,9 +65,9 @@ const VALUE_VALIDATORS = {
 // Severity levels for sensitive fields
 const FIELD_SEVERITY = {
     critical: ['password', 'passwd', 'pwd', 'secret', 'private_key', 'api_key', 'apikey',
-               'credit_card', 'card_number', 'cvv', 'ssn', 'social_security'],
+        'credit_card', 'card_number', 'cvv', 'ssn', 'social_security'],
     high: ['email', 'phone', 'token', 'jwt', 'session_id', 'passport', 'driver_license',
-           'bank_account', 'iban', 'medical', 'health_record'],
+        'bank_account', 'iban', 'medical', 'health_record'],
     medium: ['address', 'birth_date', 'dob', 'full_name', 'payment', 'billing']
 };
 
@@ -156,23 +156,37 @@ function validateSensitiveValue(value) {
 /**
  * Analyze table data for sensitive information
  */
-function analyzeTable(tableName, rows) {
+function analyzeTable(tableName, rows, schema = []) {
     const result = {
         tableName,
         rowCount: rows ? rows.length : 0,
         sensitiveFields: [],
+        exposedColumns: schema || [],
+        columnCount: schema ? schema.length : 0,
         vulnerabilityLevel: 'safe',
-        findings: []
+        findings: [],
+        sampleData: rows ? rows.slice(0, 5) : []
     };
 
     if (!rows || rows.length === 0) {
+        // If we have schema but no data, still mark columns as exposed
+        if (schema && schema.length > 0) {
+            result.columnCount = schema.length;
+            result.exposedColumns = schema;
+        }
         return result;
     }
 
     const sensitiveFieldsMap = new Map();
     const keys = Object.keys(rows[0] || {});
 
-    // Check column names
+    // If no schema provided, extract from data
+    if (!schema || schema.length === 0) {
+        result.exposedColumns = keys.map(key => ({ name: key, type: 'unknown' }));
+        result.columnCount = keys.length;
+    }
+
+    // Check column names for sensitive data
     keys.forEach(key => {
         if (isSensitiveField(key)) {
             const severity = getFieldSeverity(key);
@@ -271,7 +285,8 @@ function generateSummary(tableAnalyses) {
         mediumRiskTables: 0,
         safeTables: 0,
         blockedTables: 0,
-        totalSensitiveFields: 0
+        totalSensitiveFields: 0,
+        totalExposedRows: 0
     };
 
     tableAnalyses.forEach(analysis => {
@@ -280,12 +295,15 @@ function generateSummary(tableAnalyses) {
         } else if (analysis.vulnerabilityLevel === 'critical') {
             summary.criticalTables++;
             summary.vulnerableTables++;
+            summary.totalExposedRows += analysis.rowCount || 0;
         } else if (analysis.vulnerabilityLevel === 'high') {
             summary.highRiskTables++;
             summary.vulnerableTables++;
+            summary.totalExposedRows += analysis.rowCount || 0;
         } else if (analysis.vulnerabilityLevel === 'medium') {
             summary.mediumRiskTables++;
             summary.vulnerableTables++;
+            summary.totalExposedRows += analysis.rowCount || 0;
         } else {
             summary.safeTables++;
         }
@@ -294,6 +312,15 @@ function generateSummary(tableAnalyses) {
     });
 
     return summary;
+}
+
+/**
+ * Generate cURL command for fetching table data
+ */
+function generateCurlCommand(supabaseUrl, apiKey, tableName) {
+    return `curl '${supabaseUrl}/rest/v1/${tableName}?limit=5' \\
+  -H 'apikey: ${apiKey}' \\
+  -H 'Authorization: Bearer ${apiKey}'`;
 }
 
 // Export for use in other scripts
@@ -305,6 +332,7 @@ if (typeof module !== 'undefined' && module.exports) {
         isSensitiveField,
         getFieldSeverity,
         analyzeTable,
-        generateSummary
+        generateSummary,
+        generateCurlCommand
     };
 }

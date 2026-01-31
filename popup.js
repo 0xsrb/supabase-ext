@@ -53,11 +53,11 @@ function toggleTheme() {
 function setTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
-    
+
     // Update icon
     const sunIcon = document.querySelector('.sun-icon');
     const moonIcon = document.querySelector('.moon-icon');
-    
+
     if (theme === 'dark') {
         sunIcon.style.display = 'none';
         moonIcon.style.display = 'block';
@@ -243,12 +243,12 @@ function displayCredentials() {
     scanResults.discoveredUrls.forEach(url => {
         const item = document.createElement('div');
         item.className = 'credential-item';
-        
+
         const textSpan = document.createElement('span');
         textSpan.innerHTML = `<strong>URL:</strong> ${url}`;
-        
+
         const copyBtn = createCopyButton(url);
-        
+
         item.appendChild(textSpan);
         item.appendChild(copyBtn);
         container.appendChild(item);
@@ -258,14 +258,14 @@ function displayCredentials() {
     scanResults.discoveredJwts.forEach(jwt => {
         const item = document.createElement('div');
         item.className = 'credential-item';
-        
+
         const shortJwt = jwt.substring(0, 20) + '...';
         const textSpan = document.createElement('span');
         textSpan.innerHTML = `<strong>JWT:</strong> ${shortJwt}`;
         textSpan.title = jwt; // Tooltip with full JWT
-        
+
         const copyBtn = createCopyButton(jwt);
-        
+
         item.appendChild(textSpan);
         item.appendChild(copyBtn);
         container.appendChild(item);
@@ -282,23 +282,23 @@ function createCopyButton(text) {
         </svg>
     `;
     btn.title = "Copy to clipboard";
-    
+
     btn.addEventListener('click', () => {
         copyToClipboard(text, btn);
     });
-    
+
     return btn;
 }
 
 async function copyToClipboard(text, btn) {
     try {
         await navigator.clipboard.writeText(text);
-        
+
         // Visual feedback
         const originalHtml = btn.innerHTML;
         btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
         btn.style.color = 'var(--success-text)';
-        
+
         setTimeout(() => {
             btn.innerHTML = originalHtml;
             btn.style.color = '';
@@ -320,11 +320,11 @@ function applyFilters() {
     // Filter tables
     const filteredTables = scanResults.tables.filter(table => {
         const matchesSearch = table.tableName.toLowerCase().includes(searchTerm);
-        
+
         if (vulnerableOnly) {
             return matchesSearch && (table.vulnerabilityLevel === 'critical' || table.vulnerabilityLevel === 'high' || table.vulnerabilityLevel === 'medium');
         }
-        
+
         return matchesSearch;
     });
 
@@ -380,25 +380,144 @@ function renderTableList(containerId, tables) {
     tables.forEach(table => {
         const item = document.createElement('div');
         item.className = 'table-item';
+        item.dataset.tableName = table.tableName;
 
+        // Determine RLS status badge
+        let rlsBadge = '';
+        let dataExposedBadge = '';
+
+        if (table.blocked) {
+            rlsBadge = '<span class="badge-rls protected">PROTECTED</span>';
+        } else if (table.rowCount > 0 || table.columnCount > 0) {
+            rlsBadge = '<span class="badge-rls vulnerable">⚠ RLS VULNERABLE</span>';
+
+            // Determine severity
+            let severityClass = 'info';
+            if (table.vulnerabilityLevel === 'critical') {
+                severityClass = 'critical';
+            } else if (table.vulnerabilityLevel === 'high') {
+                severityClass = 'high';
+            } else if (table.vulnerabilityLevel === 'medium') {
+                severityClass = 'medium';
+            }
+
+            dataExposedBadge = `<span class="badge-severity ${severityClass}">🔓 Data Exposed</span>`;
+        } else {
+            rlsBadge = '<span class="badge-rls none">NONE</span>';
+        }
+
+        // Build sensitive fields badges
         let fieldsHtml = '';
         if (table.sensitiveFields && table.sensitiveFields.length > 0) {
             const badges = table.sensitiveFields.map(field => {
                 const severityClass = field.severity === 'critical' ? 'critical' :
-                                     field.severity === 'high' ? 'high' : '';
+                    field.severity === 'high' ? 'high' : 'medium';
                 return `<span class="field-badge ${severityClass}">${field.fieldName}</span>`;
             }).join('');
             fieldsHtml = `<div class="table-fields">${badges}</div>`;
         }
 
-        item.innerHTML = `
-            <div class="table-header">
-                <span class="table-name">${table.tableName}</span>
-                <span class="table-meta">${table.rowCount} rows</span>
+        // Create header
+        const headerHtml = `
+            <div class="table-header" onclick="toggleTableDetails('${table.tableName}')">
+                <div class="table-info">
+                    <div class="table-title-row">
+                        <span class="table-name">${table.tableName}</span>
+                        ${rlsBadge}
+                        ${dataExposedBadge}
+                    </div>
+                    <div class="table-meta">
+                        <span>${table.columnCount || 0} columns</span>
+                        <span class="separator">•</span>
+                        <span class="exposed-count">🔓 ${table.rowCount || 0} rows exposed</span>
+                    </div>
+                </div>
+                <div class="expand-icon">▼</div>
             </div>
-            ${fieldsHtml}
         `;
 
+        // Create details section (columns + data preview)
+        let detailsHtml = '';
+        if (!table.blocked && (table.exposedColumns || table.sampleData)) {
+            // Exposed columns section
+            let columnsHtml = '';
+            if (table.exposedColumns && table.exposedColumns.length > 0) {
+                const columnBadges = table.exposedColumns.map(col =>
+                    `<div class="column-badge">${col.name}</div>`
+                ).join('');
+
+                columnsHtml = `
+                    <div class="exposed-columns-section">
+                        <div class="section-header">
+                            <span class="section-icon">📋</span>
+                            <strong>Exposed Columns (${table.exposedColumns.length})</strong>
+                        </div>
+                        <div class="columns-grid">
+                            ${columnBadges}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Data preview section
+            let dataPreviewHtml = '';
+            if (table.sampleData && table.sampleData.length > 0) {
+                const columns = Object.keys(table.sampleData[0]);
+                const headerRow = columns.map(col => `<th>${col}</th>`).join('');
+                const dataRows = table.sampleData.map(row => {
+                    const cells = columns.map(col => {
+                        let value = row[col];
+                        if (value === null) value = '<em>null</em>';
+                        else if (value === undefined) value = '<em>undefined</em>';
+                        else if (typeof value === 'object') value = JSON.stringify(value);
+                        else value = String(value);
+
+                        // Truncate long values
+                        if (value.length > 50) {
+                            value = value.substring(0, 50) + '...';
+                        }
+
+                        return `<td>${value}</td>`;
+                    }).join('');
+                    return `<tr>${cells}</tr>`;
+                }).join('');
+
+                dataPreviewHtml = `
+                    <div class="data-preview-section">
+                        <div class="section-header">
+                            <span class="section-icon">📊</span>
+                            <strong>Data Preview (First ${table.sampleData.length} rows)</strong>
+                            <button class="copy-curl-btn" onclick="copyCurlCommand('${table.tableName}')" title="Copy as cURL">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M8 4V16C8 17.1046 8.89543 18 10 18H20C21.1046 18 22 17.1046 22 16V4C22 2.89543 21.1046 2 20 2H10C8.89543 2 8 2.89543 8 4Z" stroke="currentColor" stroke-width="2"/>
+                                    <path d="M16 18V20C16 21.1046 15.1046 22 14 22H4C2.89543 22 2 21.1046 2 20V8C2 6.89543 2.89543 6 4 6H6" stroke="currentColor" stroke-width="2"/>
+                                </svg>
+                                Copy as cURL
+                            </button>
+                        </div>
+                        <div class="data-preview-table-container">
+                            <table class="data-preview-table">
+                                <thead>
+                                    <tr>${headerRow}</tr>
+                                </thead>
+                                <tbody>
+                                    ${dataRows}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }
+
+            detailsHtml = `
+                <div class="table-details" id="details-${table.tableName}">
+                    ${columnsHtml}
+                    ${dataPreviewHtml}
+                </div>
+            `;
+        }
+
+        item.innerHTML = headerHtml + fieldsHtml + detailsHtml;
         container.appendChild(item);
     });
 }
@@ -438,12 +557,12 @@ function downloadCSV() {
         const level = table.vulnerabilityLevel;
         const count = table.rowCount;
         const fields = table.sensitiveFields ? table.sensitiveFields.map(f => f.fieldName).join(', ') : '';
-        
+
         // Escape quotes for CSV
         return [
-            `"${table.tableName}"`, 
-            `"${status}"`, 
-            `"${level}"`, 
+            `"${table.tableName}"`,
+            `"${status}"`,
+            `"${level}"`,
             count,
             `"${fields}"`
         ].join(',');
@@ -469,7 +588,7 @@ function resetToScan() {
     // Clear search
     document.getElementById('tableSearch').value = '';
     document.getElementById('vulnerableOnly').checked = false;
-    
+
     showView('scanView');
 }
 
@@ -502,6 +621,64 @@ function addLog(message) {
     entry.textContent = `[${timestamp}] ${message}`;
     logOutput.appendChild(entry);
     logOutput.scrollTop = logOutput.scrollHeight;
+}
+
+/**
+ * Toggle table details expansion
+ */
+function toggleTableDetails(tableName) {
+    const details = document.getElementById(`details-${tableName}`);
+    const tableItem = details?.closest('.table-item');
+
+    if (!details || !tableItem) return;
+
+    const isExpanded = details.classList.contains('expanded');
+    const expandIcon = tableItem.querySelector('.expand-icon');
+
+    if (isExpanded) {
+        details.classList.remove('expanded');
+        if (expandIcon) expandIcon.textContent = '▼';
+    } else {
+        details.classList.add('expanded');
+        if (expandIcon) expandIcon.textContent = '▲';
+    }
+}
+
+/**
+ * Copy cURL command for a table
+ */
+function copyCurlCommand(tableName) {
+    if (!scanResults) return;
+
+    const curlCommand = generateCurlCommand(
+        scanResults.supabaseUrl,
+        scanResults.discoveredJwts[0],
+        tableName
+    );
+
+    navigator.clipboard.writeText(curlCommand).then(() => {
+        // Visual feedback - find the button that was clicked
+        const buttons = document.querySelectorAll('.copy-curl-btn');
+        buttons.forEach(btn => {
+            if (btn.onclick && btn.onclick.toString().includes(tableName)) {
+                const originalText = btn.innerHTML;
+                btn.innerHTML = `
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                    Copied!
+                `;
+                btn.style.background = 'var(--success-bg, #10b981)';
+
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.style.background = '';
+                }, 2000);
+            }
+        });
+    }).catch(err => {
+        console.error('Failed to copy cURL command:', err);
+    });
 }
 
 /**

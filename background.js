@@ -65,7 +65,7 @@ async function enumerateTables(supabaseUrl, apiKey) {
         });
 
         if (!response.ok) {
-            return { success: false, error: `HTTP ${response.status}`, tables: [] };
+            return { success: false, error: `HTTP ${response.status}`, tables: [], schema: null };
         }
 
         const data = await response.json();
@@ -84,23 +84,56 @@ async function enumerateTables(supabaseUrl, apiKey) {
             });
         }
 
-        return { success: true, tables: tables.filter(t => t && !t.includes('{')), error: null };
+        return { 
+            success: true, 
+            tables: tables.filter(t => t && !t.includes('{')), 
+            schema: data,
+            error: null 
+        };
     } catch (error) {
-        return { success: false, error: error.message, tables: [] };
+        return { success: false, error: error.message, tables: [], schema: null };
     }
+}
+
+/**
+ * Get table schema (columns) from OpenAPI definition
+ */
+function getTableSchema(schemaData, tableName) {
+    const columns = [];
+    
+    if (!schemaData || !schemaData.definitions) {
+        return columns;
+    }
+
+    const definition = schemaData.definitions[tableName];
+    if (!definition || !definition.properties) {
+        return columns;
+    }
+
+    // Extract column names and types
+    Object.entries(definition.properties).forEach(([columnName, columnDef]) => {
+        columns.push({
+            name: columnName,
+            type: columnDef.type || 'unknown',
+            format: columnDef.format || null
+        });
+    });
+
+    return columns;
 }
 
 /**
  * Fetch sample data from a table
  */
-async function fetchTableData(supabaseUrl, apiKey, tableName, limit = 20) {
+async function fetchTableData(supabaseUrl, apiKey, tableName, limit = 5) {
     try {
         const response = await fetch(`${supabaseUrl}/rest/v1/${tableName}?limit=${limit}`, {
             method: 'GET',
             headers: {
                 'apikey': apiKey,
                 'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'application/json'
+                'Accept': 'application/json',
+                'Prefer': 'count=exact'
             }
         });
 
@@ -109,7 +142,8 @@ async function fetchTableData(supabaseUrl, apiKey, tableName, limit = 20) {
                 success: false,
                 blocked: true,
                 status: response.status,
-                data: null
+                data: null,
+                rowCount: 0
             };
         }
 
@@ -119,23 +153,37 @@ async function fetchTableData(supabaseUrl, apiKey, tableName, limit = 20) {
                 blocked: false,
                 status: response.status,
                 error: `HTTP ${response.status}`,
-                data: null
+                data: null,
+                rowCount: 0
             };
         }
 
         const data = await response.json();
+        
+        // Try to get total count from Content-Range header
+        const contentRange = response.headers.get('Content-Range');
+        let totalCount = 0;
+        if (contentRange) {
+            const match = contentRange.match(/\/(\d+)$/);
+            if (match) {
+                totalCount = parseInt(match[1], 10);
+            }
+        }
+        
         return {
             success: true,
             blocked: false,
             data: Array.isArray(data) ? data : [],
-            rowCount: Array.isArray(data) ? data.length : 0
+            rowCount: totalCount || (Array.isArray(data) ? data.length : 0),
+            sampleData: Array.isArray(data) ? data.slice(0, 5) : []
         };
     } catch (error) {
         return {
             success: false,
             blocked: false,
             error: error.message,
-            data: null
+            data: null,
+            rowCount: 0
         };
     }
 }
@@ -172,6 +220,7 @@ async function performSecurityAssessment(supabaseUrl, apiKey, progressCallback) 
     }
 
     const tableNames = enumResult.tables;
+    const schemaData = enumResult.schema;
     progressCallback({
         stage: 'enumeration',
         message: `Found ${tableNames.length} tables`,
@@ -194,7 +243,8 @@ async function performSecurityAssessment(supabaseUrl, apiKey, progressCallback) 
             await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        const tableData = await fetchTableData(supabaseUrl, apiKey, tableName);
+        const tableData = await fetchTableData(supabaseUrl, apiKey, tableName, 5);
+        const tableSchema = getTableSchema(schemaData, tableName);
 
         if (tableData.blocked) {
             results.tables.push({
@@ -203,12 +253,19 @@ async function performSecurityAssessment(supabaseUrl, apiKey, progressCallback) 
                 status: tableData.status,
                 vulnerabilityLevel: 'protected',
                 sensitiveFields: [],
-                rowCount: 0
+                exposedColumns: [],
+                columnCount: 0,
+                rowCount: 0,
+                sampleData: []
             });
         } else if (tableData.success && tableData.data) {
-            const analysis = analyzeTable(tableName, tableData.data);
+            const analysis = analyzeTable(tableName, tableData.data, tableSchema);
             analysis.blocked = false;
             analysis.status = 200;
+            analysis.rowCount = tableData.rowCount;
+            analysis.sampleData = tableData.sampleData || [];
+            analysis.exposedColumns = tableSchema;
+            analysis.columnCount = tableSchema.length;
             results.tables.push(analysis);
         } else {
             results.tables.push({
@@ -217,7 +274,10 @@ async function performSecurityAssessment(supabaseUrl, apiKey, progressCallback) 
                 error: tableData.error,
                 vulnerabilityLevel: 'unknown',
                 sensitiveFields: [],
-                rowCount: 0
+                exposedColumns: [],
+                columnCount: 0,
+                rowCount: 0,
+                sampleData: []
             });
         }
     }

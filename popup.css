@@ -623,3 +623,319 @@ main {
     color: var(--text-secondary);
     font-style: italic;
 }
+
+/* Enhanced Table Item Styles */
+.table-item {
+    padding: 0;
+    border-bottom: 1px solid var(--border-color);
+    transition: background 0.2s;
+}
+
+.table-item:hover {
+    background: var(--bg-color);
+}
+
+.table-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.table-header:hover {
+    background: rgba(102, 126, 234, 0.05);
+}
+
+.table-info {
+    flex: 1;
+}
+
+.table-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.table-name {
+    font-weight: 600;
+    font-family: monospace;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.table-meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.table-meta .separator {
+    color: var(--border-color);
+}
+
+.exposed-count {
+    color: var(--danger-text);
+    font-weight: 500;
+}
+
+.expand-icon {
+    color: var(--text-secondary);
+    font-size: 12px;
+    transition: transform 0.2s;
+    margin-left: 8px;
+}
+
+/* RLS Badges */
+.badge-rls {
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.badge-rls.vulnerable {
+    background: #ffebee;
+    color: #c62828;
+    border: 1px solid #ef9a9a;
+}
+
+[data-theme="dark"] .badge-rls.vulnerable {
+    background: #b71c1c;
+    color: #ffcdd2;
+    border: 1px solid #ef5350;
+}
+
+.badge-rls.protected {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #a5d6a7;
+}
+
+[data-theme="dark"] .badge-rls.protected {
+    background: #1b5e20;
+    color: #c8e6c9;
+    border: 1px solid #66bb6a;
+}
+
+.badge-rls.none {
+    background: var(--code-bg);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}
+
+/* Severity Badges */
+.badge-severity {
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.badge-severity.critical {
+    background: #ffebee;
+    color: #c62828;
+}
+
+[data-theme="dark"] .badge-severity.critical {
+    background: #b71c1c;
+    color: #ffcdd2;
+}
+
+.badge-severity.high {
+    background: #fff3e0;
+    color: #ef6c00;
+}
+
+[data-theme="dark"] .badge-severity.high {
+    background: #e65100;
+    color: #ffcc80;
+}
+
+.badge-severity.medium {
+    background: #fff9c4;
+    color: #f57f17;
+}
+
+[data-theme="dark"] .badge-severity.medium {
+    background: #f57f17;
+    color: #fff9c4;
+}
+
+/* Table Details (Expandable Section) */
+.table-details {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+    background: var(--bg-color);
+}
+
+.table-details.expanded {
+    max-height: 2000px;
+    transition: max-height 0.5s ease-in;
+}
+
+/* Exposed Columns Section */
+.exposed-columns-section {
+    padding: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.section-icon {
+    font-size: 16px;
+}
+
+.columns-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+}
+
+.column-badge {
+    padding: 8px 12px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 12px;
+    color: var(--text-primary);
+    text-align: center;
+    transition: all 0.2s;
+}
+
+.column-badge:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Data Preview Section */
+.data-preview-section {
+    padding: 16px;
+    border-top: 1px solid var(--border-color);
+    background: var(--card-bg);
+}
+
+.data-preview-table-container {
+    overflow-x: auto;
+    margin-top: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+}
+
+.data-preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--card-bg);
+}
+
+.data-preview-table thead {
+    background: var(--code-bg);
+    position: sticky;
+    top: 0;
+}
+
+.data-preview-table th {
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 2px solid var(--border-color);
+    white-space: nowrap;
+    font-family: monospace;
+    font-size: 11px;
+}
+
+.data-preview-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-family: monospace;
+    font-size: 11px;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.data-preview-table tbody tr:hover {
+    background: var(--bg-color);
+}
+
+.data-preview-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.data-preview-table td em {
+    color: var(--text-secondary);
+    opacity: 0.6;
+}
+
+/* Copy cURL Button */
+.copy-curl-btn {
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+    margin-left: auto;
+}
+
+.copy-curl-btn:hover {
+    background: #5568d3;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+}
+
+.copy-curl-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Field badges update */
+.field-badge.medium {
+    background: var(--warning-bg);
+    color: var(--warning-text);
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+    .columns-grid {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    }
+    
+    .data-preview-table {
+        font-size: 10px;
+    }
+    
+    .data-preview-table th,
+    .data-preview-table td {
+        padding: 6px 8px;
+    }
+}
