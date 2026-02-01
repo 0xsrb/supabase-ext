@@ -1,75 +1,213 @@
-# 🎯 Supabase Exposure Check Extension
+# Supabase Security Scanner - Version 2.0
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Chrome](https://img.shields.io/badge/Chrome-Extension-orange.svg)
-
-> **Stop security leaks before they happen.** Automatically scan websites for exposed Supabase JWT tokens, enumerate accessible tables, and identify sensitive data leakage.
+A powerful browser extension that scans websites for exposed Supabase credentials and analyzes database security vulnerabilities.
 
 ---
 
-## ⚡ Key Features
+## 🎉 What's New in V2.0
 
-| Feature | Description |
-| :--- | :--- |
-| **🔍 Smart Detection** | Scans external & inline JS files for Supabase Project URLs and JWTs. |
-| **🛡️ Security Audit** | Attempts to enumerate tables and sample data to identify PII, Credentials, and Secrets. |
-| **🎨 Modern UI** | Beautiful, interactive dashboard with **Dark Mode** support. |
-| **📊 Detailed Reports** | Export your findings instantly to **JSON** or **CSV** formats. |
-| **📋 Quick Actions** | One-click "Copy to Clipboard" for discovered credentials. |
-| **🔦 Advanced Filtering** | Search through discovered tables and filter by severity levels. |
+### Changes Made Today (Jan 31, 2026)
+
+✅ **Removed "Copy as cURL" button** - Simplified UI  
+✅ **Increased data preview from 5 to 15 rows** - Better visibility  
+✅ **Fixed toggle functionality** - Smooth animations and reliable expanding/collapsing  
+✅ **Improved event handling** - More robust with special characters in table names  
 
 ---
 
-## 📸 Preview
+## 🚀 Current Features
 
-*(Add your screenshots here after uploading to GitHub)*
-- [Dashboard View]
-- [Vulnerability Report]
-- [Dark Mode Toggle]
+### Core Scanning
+- 🔍 **Automatic Credential Detection** - Finds Supabase URLs and API keys in page source
+- 📊 **Database Enumeration** - Lists all accessible tables
+- 🔒 **RLS Detection** - Identifies tables without Row Level Security
+- ⚠️ **Sensitive Data Detection** - Flags PII, credentials, financial data
+- 📈 **Risk Scoring** - 0-100 security score with severity levels
 
----
+### Data Analysis
+- 🎯 **15-Row Data Preview** - See actual exposed data
+- 📋 **Column Analysis** - View all exposed columns with type icons
+- 🏷️ **Severity Classification** - Critical, High, Medium, Low
+- 💾 **Export Options** - JSON and CSV formats
 
-## 🚀 Installation (Developer Mode)
-
-Since this is a specialized security tool, it is distributed via GitHub Releases for full transparency.
-
-1.  **Download:** Go to the [Releases](https://github.com/0xsrb/supabase-ext/releases) page and download `supabase-exposure-extension-v1.0.0.zip`.
-2.  **Extract:** Unzip the downloaded file to a local folder.
-3.  **Chrome Extensions:** Open Chrome and navigate to `chrome://extensions/`.
-4.  **Developer Mode:** Toggle the **Developer mode** switch in the top-right corner.
-5.  **Load Unpacked:** Click the **Load unpacked** button.
-6.  **Select Folder:** Choose the folder where you extracted the extension.
-
----
-
-## 🛠️ How to Use
-
-1.  Navigate to any website you want to audit.
-2.  Click the **Supabase Security Scanner** icon in your extension bar.
-3.  Hit **Start Security Scan**.
-4.  Watch the real-time log as the extension analyzes script resources and tests API endpoints.
-5.  Review the categorized results (Critical, High, Medium, Safe).
+### User Experience
+- 🌓 **Dark/Light Theme** - Toggle between themes
+- 🎨 **Modern UI** - Clean, professional interface
+- ⚡ **Fast Scanning** - Optimized performance
+- 📱 **Responsive Design** - Works in any browser window size
 
 ---
 
-## 🔒 Security & Privacy
+## 📦 Installation
 
-- **Local Execution:** All analysis and API calls are performed directly from *your* browser.
-- **No Tracking:** This extension does not track your browsing history or send data to any external servers.
-- **Open Source:** Auditable code to ensure your own security while auditing others.
+1. Download `supabase-exposure-check-v2.zip`
+2. Extract the zip file
+3. Open Chrome/Edge and navigate to `chrome://extensions/`
+4. Enable "Developer mode" (top right)
+5. Click "Load unpacked"
+6. Select the extracted `supabase-exposure-check` folder
+7. The extension icon will appear in your toolbar
 
 ---
 
-## 👨‍💻 Original Tool
+## 🎯 How to Use
 
-This extension is based on the original Python CLI tool. You can still find the CLI version in the root directory:
-```bash
-python supabase-exposure-check.py --url https://example.com
+1. **Navigate** to any website that uses Supabase
+2. **Click** the extension icon in your toolbar
+3. **Press** "Start Security Scan"
+4. **Review** the results:
+   - Risk score and summary
+   - Critical findings
+   - Vulnerable tables (expandable)
+   - Data previews
+5. **Export** results as JSON or CSV if needed
+6. **Take action** to fix vulnerabilities
+
+---
+
+## 📊 Understanding Results
+
+### Risk Levels
+- 🔴 **CRITICAL (75-100)** - Immediate action required
+- 🟠 **HIGH (50-74)** - Fix within 24 hours
+- 🟡 **MEDIUM (25-49)** - Fix within a week
+- 🟢 **LOW (0-24)** - Monitor and plan fixes
+
+### Vulnerability Types
+- **Critical**: Passwords, API keys, credit cards, SSN
+- **High**: Emails, phone numbers, tokens, medical records
+- **Medium**: Addresses, names, dates of birth
+- **Low**: Public or non-sensitive data
+
+### Table Status
+- 🚨 **Critical/High Risk** - RLS disabled with sensitive data
+- ⚠️ **Medium Risk** - RLS disabled or data exposure
+- ✅ **Protected** - RLS enabled (blocked access)
+- ℹ️ **Public/Safe** - No sensitive data detected
+
+---
+
+## 🔧 What to Do When Vulnerabilities Are Found
+
+### Immediate Actions:
+1. **Enable RLS** on all tables with sensitive data
+2. **Review policies** - Ensure they're restrictive enough
+3. **Rotate keys** if service_role key is exposed
+4. **Audit access logs** to see if data was accessed
+5. **Update frontend** to use proper authentication
+
+### Example Fix (SQL):
+```sql
+-- Enable Row Level Security
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+-- Add policy for user isolation
+CREATE POLICY "Users can only see their own data"
+ON users FOR SELECT
+USING (auth.uid() = id);
+
+-- Add policy for updates
+CREATE POLICY "Users can only update their own data"
+ON users FOR UPDATE
+USING (auth.uid() = id)
+WITH CHECK (auth.uid() = id);
 ```
+
+---
+
+## 📚 Documentation
+
+- **Full Documentation**: See `docs/` folder
+- **Installation Guide**: `docs/INSTALLATION.md`
+- **Quick Start**: `docs/QUICK-START.md`
+- **Testing Guide**: `docs/TESTING-GUIDE.md`
+- **Improvement Suggestions**: `IMPROVEMENT_SUGGESTIONS.md`
+- **Top 5 Next Features**: `TOP_5_IMPROVEMENTS.md`
+
+---
+
+## 🎯 Roadmap
+
+### Coming Soon (Priority Order):
+
+1. **Automated Remediation** - Copy-paste SQL fixes for each vulnerability
+2. **Enhanced Exports** - Detailed PDF reports with executive summaries
+3. **Historical Comparison** - Track security improvements over time
+4. **RLS Policy Analyzer** - Deep analysis of policy configurations
+5. **Real-time Monitoring** - Background scanning with notifications
+
+See `TOP_5_IMPROVEMENTS.md` for detailed specifications.
+
+---
+
+## 🐛 Known Issues
+
+None currently. Report issues via GitHub.
+
+---
+
+## 🤝 Contributing
+
+Contributions welcome! Areas where help is needed:
+- Additional sensitive data patterns
+- Performance optimizations
+- UI/UX improvements
+- Documentation
+- Testing
 
 ---
 
 ## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+[Your License Here]
+
+---
+
+## ⚠️ Disclaimer
+
+This tool is for **security testing and auditing purposes only**. Only use it on:
+- Your own Supabase projects
+- Projects where you have explicit permission to test
+- Development/staging environments
+
+**Never use this tool to:**
+- Access unauthorized data
+- Test production systems without permission
+- Exploit vulnerabilities for malicious purposes
+
+---
+
+## 🙏 Acknowledgments
+
+- Built for the Supabase community
+- Inspired by security best practices
+- Thanks to all contributors and testers
+
+---
+
+## 📞 Support
+
+- **Issues**: [GitHub Issues]
+- **Questions**: [GitHub Discussions]
+- **Email**: [Your Email]
+- **Twitter**: [Your Twitter]
+
+---
+
+## 📈 Stats
+
+- **Version**: 2.0
+- **Last Updated**: January 31, 2026
+- **Total Scans**: [Track this]
+- **Vulnerabilities Found**: [Track this]
+- **Active Users**: [Track this]
+
+---
+
+## 🌟 Star History
+
+If you find this tool useful, please star the repository!
+
+---
+
+**Made with ❤️ for the Supabase community**

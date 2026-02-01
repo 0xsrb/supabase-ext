@@ -70,25 +70,30 @@ async function enumerateTables(supabaseUrl, apiKey) {
 
         const data = await response.json();
 
-        // Extract table names from OpenAPI schema
+        // Extract table names from OpenAPI schema definitions only
+        // This is more accurate than parsing paths which can include duplicates
         const tables = [];
         if (data.definitions) {
-            tables.push(...Object.keys(data.definitions));
-        }
-        if (data.paths) {
-            Object.keys(data.paths).forEach(path => {
-                const tableName = path.replace(/^\//, '').split('/')[0];
-                if (tableName && !tables.includes(tableName)) {
-                    tables.push(tableName);
-                }
-            });
+            // Get all definition keys (these are the actual tables)
+            const definitionKeys = Object.keys(data.definitions);
+            tables.push(...definitionKeys);
         }
 
-        return { 
-            success: true, 
-            tables: tables.filter(t => t && !t.includes('{')), 
+        // Filter out any invalid entries and ensure uniqueness
+        const uniqueTables = [...new Set(tables.filter(t => {
+            // Remove empty strings, entries with curly braces (path parameters)
+            // and any system/internal tables
+            return t &&
+                !t.includes('{') &&
+                !t.includes('}') &&
+                t.trim().length > 0;
+        }))];
+
+        return {
+            success: true,
+            tables: uniqueTables,
             schema: data,
-            error: null 
+            error: null
         };
     } catch (error) {
         return { success: false, error: error.message, tables: [], schema: null };
@@ -100,7 +105,7 @@ async function enumerateTables(supabaseUrl, apiKey) {
  */
 function getTableSchema(schemaData, tableName) {
     const columns = [];
-    
+
     if (!schemaData || !schemaData.definitions) {
         return columns;
     }
@@ -125,7 +130,7 @@ function getTableSchema(schemaData, tableName) {
 /**
  * Fetch sample data from a table
  */
-async function fetchTableData(supabaseUrl, apiKey, tableName, limit = 5) {
+async function fetchTableData(supabaseUrl, apiKey, tableName, limit = 15) {
     try {
         const response = await fetch(`${supabaseUrl}/rest/v1/${tableName}?limit=${limit}`, {
             method: 'GET',
@@ -159,7 +164,7 @@ async function fetchTableData(supabaseUrl, apiKey, tableName, limit = 5) {
         }
 
         const data = await response.json();
-        
+
         // Try to get total count from Content-Range header
         const contentRange = response.headers.get('Content-Range');
         let totalCount = 0;
@@ -169,13 +174,13 @@ async function fetchTableData(supabaseUrl, apiKey, tableName, limit = 5) {
                 totalCount = parseInt(match[1], 10);
             }
         }
-        
+
         return {
             success: true,
             blocked: false,
             data: Array.isArray(data) ? data : [],
             rowCount: totalCount || (Array.isArray(data) ? data.length : 0),
-            sampleData: Array.isArray(data) ? data.slice(0, 5) : []
+            sampleData: Array.isArray(data) ? data.slice(0, 15) : []
         };
     } catch (error) {
         return {
@@ -243,8 +248,13 @@ async function performSecurityAssessment(supabaseUrl, apiKey, progressCallback) 
             await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        const tableData = await fetchTableData(supabaseUrl, apiKey, tableName, 5);
+        const tableData = await fetchTableData(supabaseUrl, apiKey, tableName, 15);
         const tableSchema = getTableSchema(schemaData, tableName);
+
+        // Debug logging
+        console.log(`[Scanner] Table: ${tableName}`);
+        console.log(`[Scanner] Schema columns:`, tableSchema.length);
+        console.log(`[Scanner] Fetched rows:`, tableData.rowCount);
 
         if (tableData.blocked) {
             results.tables.push({
@@ -264,8 +274,22 @@ async function performSecurityAssessment(supabaseUrl, apiKey, progressCallback) 
             analysis.status = 200;
             analysis.rowCount = tableData.rowCount;
             analysis.sampleData = tableData.sampleData || [];
-            analysis.exposedColumns = tableSchema;
-            analysis.columnCount = tableSchema.length;
+            // Don't overwrite exposedColumns - analyzeTable already set it from tableSchema
+            // analysis.exposedColumns is already set correctly in analyzeTable
+            // analysis.columnCount is already set correctly in analyzeTable
+
+            console.log(`[Scanner] Analysis result for ${tableName}:`, {
+                columnCount: analysis.columnCount,
+                exposedColumns: analysis.exposedColumns.length,
+                rowCount: analysis.rowCount,
+                sampleDataRows: analysis.sampleData.length,
+                vulnerabilityLevel: analysis.vulnerabilityLevel
+            });
+
+            if (analysis.sampleData.length > 0) {
+                console.log(`[Scanner] Sample data for ${tableName}:`, analysis.sampleData[0]);
+            }
+
             results.tables.push(analysis);
         } else {
             results.tables.push({
@@ -320,12 +344,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 // Popup might be closed, ignore
             });
         })
-        .then(results => {
-            sendResponse({ success: true, data: results });
-        })
-        .catch(error => {
-            sendResponse({ success: false, error: error.message });
-        });
+            .then(results => {
+                sendResponse({ success: true, data: results });
+            })
+            .catch(error => {
+                sendResponse({ success: false, error: error.message });
+            });
 
         return true; // Keep channel open for async
     }

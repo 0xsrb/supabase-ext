@@ -2,6 +2,7 @@
 
 let scanResults = null;
 let currentDomain = '';
+let scanCancelled = false;
 
 // Initialize popup
 document.addEventListener('DOMContentLoaded', async () => {
@@ -20,9 +21,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('scanButton').addEventListener('click', startScan);
     document.getElementById('downloadReport').addEventListener('click', downloadReport);
     document.getElementById('downloadCSV').addEventListener('click', downloadCSV);
+    document.getElementById('downloadPDF').addEventListener('click', downloadPDF);
     document.getElementById('newScan').addEventListener('click', resetToScan);
     document.getElementById('retryButton').addEventListener('click', startScan);
     document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+    document.getElementById('cancelScan').addEventListener('click', cancelScan);
+
+    // Set up collapsible sections
+    setupCollapsibleSections();
 
     // Filter listeners
     document.getElementById('tableSearch').addEventListener('input', applyFilters);
@@ -40,7 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
  * Theme Management
  */
 function initTheme() {
-    const savedTheme = localStorage.getItem('theme') || 'light';
+    const savedTheme = localStorage.getItem('theme') || 'dark';
     setTheme(savedTheme);
 }
 
@@ -71,16 +77,35 @@ function setTheme(theme) {
  * Start the security scan
  */
 async function startScan() {
+    scanCancelled = false;
     showView('progressView');
+
+    // Reset progress stages
+    resetProgressStages();
+    updateStage('credentials', 'active');
+
+    // Show "Scanning in progress" message
+    const progressText = document.getElementById('progressText');
+    progressText.textContent = '🔍 Scanning in progress...';
+    progressText.classList.add('scanning');
+
     addLog('Starting security scan...');
     updateProgressBar(10);
 
     try {
+        if (scanCancelled) throw new Error('Scan cancelled by user');
+
         // Step 1: Scan page resources
         addLog('Scanning page for JavaScript resources...');
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-        const scanResponse = await chrome.tabs.sendMessage(tab.id, { action: 'scanPage' });
+        const scanResponse = await chrome.tabs.sendMessage(tab.id, { action: 'scanPage' }).catch(err => {
+            // Suppress "Receiving end does not exist" errors
+            if (chrome.runtime.lastError) {
+                console.log('Content script not loaded, this is expected');
+            }
+            return { success: false, error: 'Content script not loaded' };
+        });
 
         if (!scanResponse.success) {
             throw new Error('Failed to scan page: ' + scanResponse.error);
@@ -132,6 +157,9 @@ async function startScan() {
         addLog(`Found ${foundUrls.length} Supabase URL(s)`);
         addLog(`Found ${foundJwts.length} JWT token(s)`);
         updateProgressBar(40);
+        updateStage('credentials', 'completed');
+
+        if (scanCancelled) throw new Error('Scan cancelled by user');
 
         if (foundUrls.length === 0) {
             throw new Error('No Supabase credentials found on this page');
@@ -142,11 +170,14 @@ async function startScan() {
         }
 
         // Step 3: Test credentials and perform assessment
+        updateStage('testing', 'active');
         const supabaseUrl = foundUrls[0]; // Use first found URL
         const apiKey = foundJwts[0]; // Use first found JWT
 
         addLog(`Testing connection to ${supabaseUrl}...`);
         addLog('This may take a few minutes...');
+
+        if (scanCancelled) throw new Error('Scan cancelled by user');
 
         // Perform the security assessment
         const assessmentResponse = await chrome.runtime.sendMessage({
@@ -159,12 +190,20 @@ async function startScan() {
             throw new Error('Assessment failed: ' + assessmentResponse.error);
         }
 
+        updateStage('testing', 'completed');
+        updateStage('enumeration', 'completed');
+        updateStage('analysis', 'completed');
+
         scanResults = assessmentResponse.data;
         scanResults.discoveredUrls = foundUrls;
         scanResults.discoveredJwts = foundJwts; // Keep full JWTs for copying
 
         updateProgressBar(100);
         addLog('Scan complete!');
+
+        // Update progress text
+        progressText.textContent = '✅ Scan complete! Preparing results...';
+        progressText.classList.remove('scanning');
 
         // Show results after a brief delay
         setTimeout(() => {
@@ -173,6 +212,8 @@ async function startScan() {
 
     } catch (error) {
         console.error('Scan error:', error);
+        const progressText = document.getElementById('progressText');
+        progressText.classList.remove('scanning');
         showError(error.message);
     }
 }
@@ -205,6 +246,25 @@ function displayResults() {
 
     const summary = scanResults.summary;
 
+    // Calculate risk score
+    const riskScore = calculateRiskScore(scanResults.tables);
+    const riskInfo = getRiskLevel(riskScore);
+
+    // Generate critical findings
+    const criticalFindings = generateCriticalFindings(scanResults.tables);
+
+    // Update risk score display
+    const riskScoreEl = document.getElementById('riskScore');
+    const riskLevelEl = document.getElementById('riskLevel');
+    if (riskScoreEl && riskLevelEl) {
+        riskScoreEl.textContent = riskScore;
+        riskLevelEl.textContent = riskInfo.level;
+        riskLevelEl.className = `risk-level ${riskInfo.color}`;
+
+        // Animate the score
+        animateCounter(riskScoreEl, 0, riskScore, 1000);
+    }
+
     // Update summary card
     if (summary.vulnerableTables > 0) {
         document.getElementById('statusIcon').textContent = '⚠️';
@@ -220,16 +280,75 @@ function displayResults() {
             'All tables are protected or contain no sensitive data';
     }
 
-    // Update stats
+    // Update enhanced stats
     document.getElementById('statTotalTables').textContent = summary.totalTables;
     document.getElementById('statVulnerable').textContent = summary.vulnerableTables;
     document.getElementById('statBlocked').textContent = summary.blockedTables;
+
+    // Add new stats
+    const totalExposedRows = summary.totalExposedRows || 0;
+    const totalExposedColumns = scanResults.tables
+        .filter(t => !t.blocked)
+        .reduce((sum, t) => sum + (t.columnCount || 0), 0);
+
+    document.getElementById('statExposedRows').textContent = totalExposedRows;
+    document.getElementById('statExposedColumns').textContent = totalExposedColumns;
+
+    // Display critical findings
+    displayCriticalFindings(criticalFindings);
 
     // Display discovered credentials
     displayCredentials();
 
     // Display tables by category
     applyFilters();
+}
+
+/**
+ * Display critical findings section
+ */
+function displayCriticalFindings(findings) {
+    const container = document.getElementById('criticalFindingsList');
+    if (!container) return;
+
+    if (findings.length === 0) {
+        container.innerHTML = '<div class="empty-findings">✅ No critical security issues detected</div>';
+        return;
+    }
+
+    // Display all findings in a single line with separators
+    const findingsHtml = findings.map((finding, index) => {
+        const icon = finding.severity === 'critical' ? '🚨' :
+            finding.severity === 'high' ? '⚠️' : '⚡';
+        return `<span class="finding-inline ${finding.severity}">${icon} ${index + 1}. <strong>${finding.table}</strong>: ${finding.message}</span>`;
+    }).join(' <span class="finding-separator">•</span> ');
+
+    container.innerHTML = `<div class="findings-inline-container">${findingsHtml}</div>`;
+}
+
+/**
+ * Animate counter from start to end
+ */
+function animateCounter(element, start, end, duration) {
+    const startTime = performance.now();
+    const range = end - start;
+
+    function update(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+
+        // Easing function for smooth animation
+        const easeOutQuart = 1 - Math.pow(1 - progress, 4);
+        const current = Math.round(start + range * easeOutQuart);
+
+        element.textContent = current;
+
+        if (progress < 1) {
+            requestAnimationFrame(update);
+        }
+    }
+
+    requestAnimationFrame(update);
 }
 
 /**
@@ -417,34 +536,74 @@ function renderTableList(containerId, tables) {
             fieldsHtml = `<div class="table-fields">${badges}</div>`;
         }
 
-        // Create header
+        // Add tooltip and copy button
+        const vulnerabilityTooltip = `
+            <span class="tooltip">ℹ️
+                <span class="tooltiptext">${getVulnerabilityExplanation(table)}</span>
+            </span>
+        `;
+
+        const copyTableBtn = `<button class="copy-table-name" onclick="copyText('${escapeHtml(table.tableName)}', this)">Copy Name</button>`;
+
+        // Create header with data attribute instead of inline onclick
         const headerHtml = `
-            <div class="table-header" onclick="toggleTableDetails('${table.tableName}')">
+            <div class="table-header" data-table-name="${escapeHtml(table.tableName)}">
                 <div class="table-info">
                     <div class="table-title-row">
                         <span class="table-name">${table.tableName}</span>
+                        ${copyTableBtn}
+                        ${vulnerabilityTooltip}
                         ${rlsBadge}
                         ${dataExposedBadge}
-                    </div>
-                    <div class="table-meta">
-                        <span>${table.columnCount || 0} columns</span>
-                        <span class="separator">•</span>
-                        <span class="exposed-count">🔓 ${table.rowCount || 0} rows exposed</span>
+                        <span class="table-meta-inline" style="margin-left: 12px; color: var(--text-secondary); font-size: 12px;">${table.columnCount || 0} columns • 🔓 ${table.rowCount || 0} rows exposed</span>
                     </div>
                 </div>
                 <div class="expand-icon">▼</div>
             </div>
         `;
 
-        // Create details section (columns + data preview)
+        // Create details section (columns + data preview + RLS policy)
         let detailsHtml = '';
         if (!table.blocked && (table.exposedColumns || table.sampleData)) {
-            // Exposed columns section
+            // RLS Policy Section (only for vulnerable tables)
+            let rlsPolicyHtml = '';
+            if (table.vulnerabilityLevel && table.vulnerabilityLevel !== 'low') {
+                const policy = generateRLSPolicy(table.tableName, table.vulnerabilityLevel);
+                const remediation = getRemediationSteps(table.vulnerabilityLevel);
+
+                rlsPolicyHtml = `
+                    <div class="rls-policy-section">
+                        <div class="rls-policy-header">
+                            <span class="rls-policy-title">🛡️ Suggested RLS Policy</span>
+                            <button class="copy-policy-btn" onclick="copyText(\`${policy.replace(/`/g, '\\`')}\`, this)">Copy SQL</button>
+                        </div>
+                        <div class="rls-policy-code">${escapeHtml(policy)}</div>
+                        <div class="remediation-steps">
+                            <h4>📋 Remediation Steps:</h4>
+                            <ol>
+                                ${remediation.map(step => `<li>${step}</li>`).join('')}
+                            </ol>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Exposed columns section with data types
             let columnsHtml = '';
             if (table.exposedColumns && table.exposedColumns.length > 0) {
-                const columnBadges = table.exposedColumns.map(col =>
-                    `<div class="column-badge">${col.name}</div>`
-                ).join('');
+                const columnBadges = table.exposedColumns.map(col => {
+                    const typeIcon = getColumnTypeIcon(col.type || col.format);
+                    const isSensitive = isSensitiveField(col.name);
+                    const sensitiveClass = isSensitive ? 'sensitive' : '';
+                    const sensitiveIndicator = isSensitive ? ' ⚠️' : '';
+                    const dataType = col.type || col.format || 'unknown';
+
+                    return `<div class="column-badge ${sensitiveClass}" title="${dataType}">
+                        <span class="column-icon">${typeIcon}</span>
+                        <span class="column-name">${col.name}</span>
+                        <span style="font-size: 9px; opacity: 0.7;"> (${dataType})</span>${sensitiveIndicator}
+                    </div>`;
+                }).join('');
 
                 columnsHtml = `
                     <div class="exposed-columns-section">
@@ -462,8 +621,23 @@ function renderTableList(containerId, tables) {
             // Data preview section
             let dataPreviewHtml = '';
             if (table.sampleData && table.sampleData.length > 0) {
+                console.log(`[Popup] Rendering data preview for ${table.tableName}:`, table.sampleData.length, 'rows');
+
                 const columns = Object.keys(table.sampleData[0]);
-                const headerRow = columns.map(col => `<th>${col}</th>`).join('');
+
+                // Get column types from exposedColumns
+                const columnTypes = {};
+                if (table.exposedColumns) {
+                    table.exposedColumns.forEach(col => {
+                        columnTypes[col.name] = col.type || col.format || 'unknown';
+                    });
+                }
+
+                const headerRow = columns.map(col => {
+                    const colType = columnTypes[col] || '';
+                    return `<th>${col}${colType ? `<br><span style="font-size: 9px; opacity: 0.7;">(${colType})</span>` : ''}</th>`;
+                }).join('');
+
                 const dataRows = table.sampleData.map(row => {
                     const cells = columns.map(col => {
                         let value = row[col];
@@ -487,13 +661,6 @@ function renderTableList(containerId, tables) {
                         <div class="section-header">
                             <span class="section-icon">📊</span>
                             <strong>Data Preview (First ${table.sampleData.length} rows)</strong>
-                            <button class="copy-curl-btn" onclick="copyCurlCommand('${table.tableName}')" title="Copy as cURL">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M8 4V16C8 17.1046 8.89543 18 10 18H20C21.1046 18 22 17.1046 22 16V4C22 2.89543 21.1046 2 20 2H10C8.89543 2 8 2.89543 8 4Z" stroke="currentColor" stroke-width="2"/>
-                                    <path d="M16 18V20C16 21.1046 15.1046 22 14 22H4C2.89543 22 2 21.1046 2 20V8C2 6.89543 2.89543 6 4 6H6" stroke="currentColor" stroke-width="2"/>
-                                </svg>
-                                Copy as cURL
-                            </button>
                         </div>
                         <div class="data-preview-table-container">
                             <table class="data-preview-table">
@@ -507,10 +674,13 @@ function renderTableList(containerId, tables) {
                         </div>
                     </div>
                 `;
+            } else {
+                console.log(`[Popup] No sample data for ${table.tableName}`);
             }
 
             detailsHtml = `
-                <div class="table-details" id="details-${table.tableName}">
+                <div class="table-details">
+                    ${rlsPolicyHtml}
                     ${columnsHtml}
                     ${dataPreviewHtml}
                 </div>
@@ -518,6 +688,16 @@ function renderTableList(containerId, tables) {
         }
 
         item.innerHTML = headerHtml + fieldsHtml + detailsHtml;
+        
+        // Add click event listener to the header after it's added to DOM
+        const header = item.querySelector('.table-header');
+        if (header) {
+            header.addEventListener('click', function() {
+                const tableName = this.getAttribute('data-table-name');
+                toggleTableDetails(tableName);
+            });
+        }
+        
         container.appendChild(item);
     });
 }
@@ -624,66 +804,332 @@ function addLog(message) {
 }
 
 /**
- * Toggle table details expansion
+ * Escape HTML to prevent issues with special characters
  */
-function toggleTableDetails(tableName) {
-    const details = document.getElementById(`details-${tableName}`);
-    const tableItem = details?.closest('.table-item');
-
-    if (!details || !tableItem) return;
-
-    const isExpanded = details.classList.contains('expanded');
-    const expandIcon = tableItem.querySelector('.expand-icon');
-
-    if (isExpanded) {
-        details.classList.remove('expanded');
-        if (expandIcon) expandIcon.textContent = '▼';
-    } else {
-        details.classList.add('expanded');
-        if (expandIcon) expandIcon.textContent = '▲';
-    }
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 /**
- * Copy cURL command for a table
+ * Toggle table details expansion
  */
-function copyCurlCommand(tableName) {
-    if (!scanResults) return;
+function toggleTableDetails(tableName) {
+    console.log('[Toggle] Attempting to toggle:', tableName);
 
-    const curlCommand = generateCurlCommand(
-        scanResults.supabaseUrl,
-        scanResults.discoveredJwts[0],
-        tableName
-    );
+    // Use CSS selector to find the details element
+    const allTableItems = document.querySelectorAll('.table-item');
+    let targetDetails = null;
+    let targetTableItem = null;
 
-    navigator.clipboard.writeText(curlCommand).then(() => {
-        // Visual feedback - find the button that was clicked
-        const buttons = document.querySelectorAll('.copy-curl-btn');
-        buttons.forEach(btn => {
-            if (btn.onclick && btn.onclick.toString().includes(tableName)) {
-                const originalText = btn.innerHTML;
-                btn.innerHTML = `
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                    Copied!
-                `;
-                btn.style.background = 'var(--success-bg, #10b981)';
+    // Find the table item that matches this table name
+    for (const item of allTableItems) {
+        const header = item.querySelector('.table-header');
+        if (header && header.getAttribute('data-table-name') === tableName) {
+            targetDetails = item.querySelector('.table-details');
+            targetTableItem = item;
+            break;
+        }
+    }
 
-                setTimeout(() => {
-                    btn.innerHTML = originalText;
-                    btn.style.background = '';
-                }, 2000);
-            }
-        });
-    }).catch(err => {
-        console.error('Failed to copy cURL command:', err);
-    });
+    console.log('[Toggle] Details element:', targetDetails);
+
+    if (!targetDetails) {
+        console.error('[Toggle] Details element not found for:', tableName);
+        return;
+    }
+
+    const isExpanded = targetDetails.classList.contains('expanded');
+    const expandIcon = targetTableItem.querySelector('.expand-icon');
+
+    console.log('[Toggle] Is expanded:', isExpanded);
+
+    if (isExpanded) {
+        targetDetails.classList.remove('expanded');
+        if (expandIcon) expandIcon.textContent = '▼';
+        console.log('[Toggle] Collapsed');
+    } else {
+        targetDetails.classList.add('expanded');
+        if (expandIcon) expandIcon.textContent = '▲';
+        console.log('[Toggle] Expanded');
+    }
 }
+
+// Make function globally accessible
+window.toggleTableDetails = toggleTableDetails;
 
 /**
  * Update progress bar
  */
 function updateProgressBar(percent) {
     document.getElementById('progressFill').style.width = percent + '%';
+}
+
+/**
+ * Update progress stage
+ */
+function updateStage(stageName, status) {
+    const stage = document.getElementById(`stage-${stageName}`);
+    if (!stage) return;
+
+    stage.classList.remove('active', 'completed');
+
+    if (status === 'active') {
+        stage.classList.add('active');
+        const icon = stage.querySelector('.stage-icon');
+        icon.textContent = '⏳';
+    } else if (status === 'completed') {
+        stage.classList.add('completed');
+        const icon = stage.querySelector('.stage-icon');
+        icon.textContent = '✓';
+    }
+}
+
+/**
+ * Reset progress stages
+ */
+function resetProgressStages() {
+    const stages = ['credentials', 'testing', 'enumeration', 'analysis'];
+    stages.forEach(stageName => {
+        const stage = document.getElementById(`stage-${stageName}`);
+        if (stage) {
+            stage.classList.remove('active', 'completed');
+            const icon = stage.querySelector('.stage-icon');
+            icon.textContent = '⏳';
+        }
+    });
+}
+
+/**
+ * Cancel scan
+ */
+function cancelScan() {
+    scanCancelled = true;
+    addLog('Cancelling scan...');
+    showError('Scan cancelled by user');
+}
+
+/**
+ * Setup collapsible sections
+ */
+function setupCollapsibleSections() {
+    document.querySelectorAll('.section-toggle').forEach(toggle => {
+        toggle.addEventListener('click', function() {
+            const section = this.closest('.collapsible-section');
+            section.classList.toggle('collapsed');
+        });
+    });
+}
+
+/**
+ * Generate RLS policy for a table
+ */
+function generateRLSPolicy(tableName, vulnerabilityLevel) {
+    const policies = {
+        critical: `-- Enable RLS on ${tableName}
+ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY;
+
+-- Create policy to restrict access to authenticated users only
+CREATE POLICY "Authenticated users only"
+ON ${tableName}
+FOR ALL
+TO authenticated
+USING (auth.uid() IS NOT NULL);
+
+-- Optionally, create policy for user-specific data
+-- Uncomment if table has a user_id column
+/*
+CREATE POLICY "Users can only access own data"
+ON ${tableName}
+FOR ALL
+TO authenticated
+USING (user_id = auth.uid());
+*/`,
+        high: `-- Enable RLS on ${tableName}
+ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY;
+
+-- Create policy with specific conditions
+CREATE POLICY "Restrict access policy"
+ON ${tableName}
+FOR SELECT
+TO authenticated
+USING (
+    -- Add your access conditions here
+    auth.uid() IS NOT NULL
+);`,
+        medium: `-- Enable RLS on ${tableName}
+ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY;
+
+-- Create read-only policy for authenticated users
+CREATE POLICY "Read access for authenticated users"
+ON ${tableName}
+FOR SELECT
+TO authenticated
+USING (true);`
+    };
+
+    return policies[vulnerabilityLevel] || policies.high;
+}
+
+/**
+ * Get remediation steps
+ */
+function getRemediationSteps(vulnerabilityLevel) {
+    const steps = {
+        critical: [
+            'Enable Row Level Security (RLS) immediately',
+            'Review all data that has been exposed',
+            'Create appropriate RLS policies based on your access requirements',
+            'Test policies thoroughly before deploying to production',
+            'Audit who may have accessed this data',
+            'Consider rotating sensitive credentials if exposed'
+        ],
+        high: [
+            'Enable Row Level Security (RLS) as soon as possible',
+            'Create RLS policies appropriate for your use case',
+            'Verify policies work as expected',
+            'Monitor access logs for unusual activity'
+        ],
+        medium: [
+            'Review data sensitivity and access requirements',
+            'Consider enabling RLS if data should be restricted',
+            'Implement appropriate access controls',
+            'Document intentional public access'
+        ]
+    };
+
+    return steps[vulnerabilityLevel] || steps.high;
+}
+
+/**
+ * Get vulnerability explanation
+ */
+function getVulnerabilityExplanation(table) {
+    if (table.blocked) {
+        return 'This table has Row Level Security (RLS) enabled and blocked anonymous access, which is good security practice.';
+    }
+
+    if (!table.rowCount || table.rowCount === 0) {
+        return 'This table is accessible but contains no data or you lack permissions to read it.';
+    }
+
+    const hasSensitiveFields = table.sensitiveFields && table.sensitiveFields.length > 0;
+
+    if (table.vulnerabilityLevel === 'critical') {
+        return `This table does NOT have Row Level Security (RLS) enabled and contains ${table.rowCount} exposed rows${hasSensitiveFields ? ' with sensitive data like ' + table.sensitiveFields.map(f => f.fieldName).join(', ') : ''}. Anyone with the API key can read ALL data in this table.`;
+    } else if (table.vulnerabilityLevel === 'high') {
+        return `This table is publicly accessible with ${table.rowCount} rows exposed. RLS is not properly configured.`;
+    } else if (table.vulnerabilityLevel === 'medium') {
+        return `This table has ${table.rowCount} rows accessible. Consider if this data should be public.`;
+    }
+
+    return 'This table is accessible via the public API.';
+}
+
+/**
+ * Copy text to clipboard
+ */
+async function copyText(text, button) {
+    try {
+        await navigator.clipboard.writeText(text);
+
+        const originalText = button.innerHTML;
+        button.innerHTML = '✓ Copied';
+        button.style.background = 'var(--success-bg)';
+
+        setTimeout(() => {
+            button.innerHTML = originalText;
+            button.style.background = '';
+        }, 2000);
+    } catch (err) {
+        console.error('Failed to copy:', err);
+    }
+}
+
+/**
+ * Download PDF report
+ */
+async function downloadPDF() {
+    if (!scanResults) return;
+
+    // Create a simple text-based report since we don't have jsPDF library in extension
+    const report = generatePDFContent();
+
+    // Create a blob and download as text file (will be converted to PDF manually or via print)
+    const blob = new Blob([report], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `supabase-security-report-${currentDomain}-${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+/**
+ * Generate PDF content
+ */
+function generatePDFContent() {
+    const date = new Date().toLocaleString();
+    let content = `SUPABASE SECURITY SCAN REPORT
+====================================
+Domain: ${currentDomain}
+Scan Date: ${date}
+Supabase URL: ${scanResults.supabaseUrl || 'N/A'}
+
+SUMMARY
+-------
+Total Tables: ${scanResults.summary.totalTables}
+Vulnerable Tables: ${scanResults.summary.vulnerableTables}
+Protected Tables: ${scanResults.summary.blockedTables}
+Total Rows Exposed: ${scanResults.summary.totalExposedRows || 0}
+
+RISK ASSESSMENT
+---------------
+Overall Risk Score: ${calculateRiskScore(scanResults.tables)}/100
+Risk Level: ${getRiskLevel(calculateRiskScore(scanResults.tables)).level}
+
+`;
+
+    // Critical Findings
+    const criticalFindings = generateCriticalFindings(scanResults.tables);
+    if (criticalFindings.length > 0) {
+        content += `CRITICAL FINDINGS
+-----------------\n`;
+        criticalFindings.forEach((finding, idx) => {
+            content += `${idx + 1}. ${finding.table}: ${finding.message}\n`;
+        });
+        content += '\n';
+    }
+
+    // Detailed Table Analysis
+    content += `DETAILED TABLE ANALYSIS
+-----------------------\n\n`;
+
+    scanResults.tables.forEach(table => {
+        content += `Table: ${table.tableName}\n`;
+        content += `Status: ${table.blocked ? 'Protected (RLS Enabled)' : 'VULNERABLE (No RLS)'}\n`;
+        content += `Rows Exposed: ${table.rowCount || 0}\n`;
+        content += `Columns: ${table.columnCount || 0}\n`;
+
+        if (table.sensitiveFields && table.sensitiveFields.length > 0) {
+            content += `Sensitive Fields: ${table.sensitiveFields.map(f => f.fieldName).join(', ')}\n`;
+        }
+
+        if (!table.blocked && table.vulnerabilityLevel) {
+            content += `\nREMEDIATION STEPS:\n`;
+            const steps = getRemediationSteps(table.vulnerabilityLevel);
+            steps.forEach((step, idx) => {
+                content += `  ${idx + 1}. ${step}\n`;
+            });
+
+            content += `\nSUGGESTED RLS POLICY:\n`;
+            content += generateRLSPolicy(table.tableName, table.vulnerabilityLevel);
+            content += '\n';
+        }
+
+        content += '\n' + '='.repeat(50) + '\n\n';
+    });
+
+    return content;
 }

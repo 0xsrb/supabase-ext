@@ -165,7 +165,7 @@ function analyzeTable(tableName, rows, schema = []) {
         columnCount: schema ? schema.length : 0,
         vulnerabilityLevel: 'safe',
         findings: [],
-        sampleData: rows ? rows.slice(0, 5) : []
+        sampleData: rows ? rows.slice(0, 15) : []
     };
 
     if (!rows || rows.length === 0) {
@@ -236,9 +236,18 @@ function analyzeTable(tableName, rows, schema = []) {
         result.vulnerabilityLevel = 'medium';
     } else if (result.sensitiveFields.length > 0) {
         result.vulnerabilityLevel = 'low';
+    } else if (rows.length > 0) {
+        // IMPORTANT: If table has exposed data but no sensitive fields detected,
+        // it's still a medium vulnerability (RLS not enabled)
+        result.vulnerabilityLevel = 'medium';
+        result.findings.push({
+            type: 'medium',
+            message: `Table is publicly accessible without RLS protection`,
+            detection: 'rls_check'
+        });
     }
 
-    // Generate findings
+    // Generate findings for sensitive fields
     result.sensitiveFields.forEach(field => {
         result.findings.push({
             type: field.severity,
@@ -323,6 +332,161 @@ function generateCurlCommand(supabaseUrl, apiKey, tableName) {
   -H 'Authorization: Bearer ${apiKey}'`;
 }
 
+/**
+ * Calculate overall risk score (0-100)
+ */
+function calculateRiskScore(tableAnalyses) {
+    let score = 0;
+    const weights = {
+        criticalTable: 25,
+        highTable: 15,
+        mediumTable: 8,
+        sensitiveField: 3,
+        exposedRow: 0.5
+    };
+
+    tableAnalyses.forEach(table => {
+        if (table.blocked) return;
+
+        // Score based on vulnerability level
+        if (table.vulnerabilityLevel === 'critical') {
+            score += weights.criticalTable;
+        } else if (table.vulnerabilityLevel === 'high') {
+            score += weights.highTable;
+        } else if (table.vulnerabilityLevel === 'medium') {
+            score += weights.mediumTable;
+        }
+
+        // Score based on sensitive fields
+        if (table.sensitiveFields) {
+            score += table.sensitiveFields.length * weights.sensitiveField;
+        }
+
+        // Score based on exposed rows (capped contribution)
+        if (table.rowCount) {
+            score += Math.min(table.rowCount * weights.exposedRow, 20);
+        }
+    });
+
+    // Cap at 100
+    return Math.min(Math.round(score), 100);
+}
+
+/**
+ * Get risk level from score
+ */
+function getRiskLevel(score) {
+    if (score >= 75) return { level: 'CRITICAL', color: 'critical' };
+    if (score >= 50) return { level: 'HIGH', color: 'high' };
+    if (score >= 25) return { level: 'MEDIUM', color: 'medium' };
+    return { level: 'LOW', color: 'safe' };
+}
+
+/**
+ * Generate critical findings list
+ */
+function generateCriticalFindings(tableAnalyses) {
+    const findings = [];
+
+    tableAnalyses.forEach(table => {
+        if (table.blocked || !table.sensitiveFields || table.sensitiveFields.length === 0) {
+            return;
+        }
+
+        // Group by severity
+        const criticalFields = table.sensitiveFields.filter(f => f.severity === 'critical');
+        const highFields = table.sensitiveFields.filter(f => f.severity === 'high');
+
+        if (criticalFields.length > 0) {
+            findings.push({
+                severity: 'critical',
+                table: table.tableName,
+                message: `${criticalFields.length} critical field(s) exposed: ${criticalFields.map(f => f.fieldName).join(', ')}`,
+                rowCount: table.rowCount || 0
+            });
+        } else if (highFields.length > 0) {
+            findings.push({
+                severity: 'high',
+                table: table.tableName,
+                message: `${highFields.length} sensitive field(s) exposed: ${highFields.map(f => f.fieldName).join(', ')}`,
+                rowCount: table.rowCount || 0
+            });
+        } else if (table.rowCount > 0) {
+            findings.push({
+                severity: 'medium',
+                table: table.tableName,
+                message: `${table.rowCount} rows publicly accessible`,
+                rowCount: table.rowCount
+            });
+        }
+    });
+
+    // Sort by severity and row count
+    const severityOrder = { critical: 0, high: 1, medium: 2 };
+    findings.sort((a, b) => {
+        if (severityOrder[a.severity] !== severityOrder[b.severity]) {
+            return severityOrder[a.severity] - severityOrder[b.severity];
+        }
+        return b.rowCount - a.rowCount;
+    });
+
+    return findings.slice(0, 5); // Top 5 findings
+}
+
+/**
+ * Get icon for column type
+ */
+function getColumnTypeIcon(type) {
+    if (!type) return '📋';
+
+    const typeStr = type.toLowerCase();
+
+    // Numeric types
+    if (typeStr.includes('int') || typeStr.includes('number') || typeStr.includes('numeric') ||
+        typeStr.includes('decimal') || typeStr.includes('float') || typeStr.includes('double')) {
+        return '🔢';
+    }
+
+    // Text types
+    if (typeStr.includes('text') || typeStr.includes('string') || typeStr.includes('varchar') ||
+        typeStr.includes('char')) {
+        return '📝';
+    }
+
+    // Boolean
+    if (typeStr.includes('bool')) {
+        return '✓';
+    }
+
+    // Date/Time types
+    if (typeStr.includes('date') || typeStr.includes('time') || typeStr.includes('timestamp')) {
+        return '📅';
+    }
+
+    // JSON/Object types
+    if (typeStr.includes('json') || typeStr.includes('object')) {
+        return '📦';
+    }
+
+    // Array types
+    if (typeStr.includes('array') || typeStr.includes('[]')) {
+        return '📚';
+    }
+
+    // UUID
+    if (typeStr.includes('uuid')) {
+        return '🔑';
+    }
+
+    // Binary/Blob
+    if (typeStr.includes('binary') || typeStr.includes('blob') || typeStr.includes('bytea')) {
+        return '💾';
+    }
+
+    // Default
+    return '📋';
+}
+
 // Export for use in other scripts
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
@@ -333,6 +497,10 @@ if (typeof module !== 'undefined' && module.exports) {
         getFieldSeverity,
         analyzeTable,
         generateSummary,
-        generateCurlCommand
+        generateCurlCommand,
+        calculateRiskScore,
+        getRiskLevel,
+        generateCriticalFindings,
+        getColumnTypeIcon
     };
 }
