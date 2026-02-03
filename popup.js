@@ -588,7 +588,7 @@ function renderTableList(containerId, tables) {
                 `;
             }
 
-            // Exposed columns section with data types
+            // Exposed columns section
             let columnsHtml = '';
             if (table.exposedColumns && table.exposedColumns.length > 0) {
                 const columnBadges = table.exposedColumns.map(col => {
@@ -596,12 +596,10 @@ function renderTableList(containerId, tables) {
                     const isSensitive = isSensitiveField(col.name);
                     const sensitiveClass = isSensitive ? 'sensitive' : '';
                     const sensitiveIndicator = isSensitive ? ' ⚠️' : '';
-                    const dataType = col.type || col.format || 'unknown';
 
-                    return `<div class="column-badge ${sensitiveClass}" title="${dataType}">
+                    return `<div class="column-badge ${sensitiveClass}">
                         <span class="column-icon">${typeIcon}</span>
-                        <span class="column-name">${col.name}</span>
-                        <span style="font-size: 9px; opacity: 0.7;"> (${dataType})</span>${sensitiveIndicator}
+                        <span class="column-name">${col.name}</span>${sensitiveIndicator}
                     </div>`;
                 }).join('');
 
@@ -625,17 +623,8 @@ function renderTableList(containerId, tables) {
 
                 const columns = Object.keys(table.sampleData[0]);
 
-                // Get column types from exposedColumns
-                const columnTypes = {};
-                if (table.exposedColumns) {
-                    table.exposedColumns.forEach(col => {
-                        columnTypes[col.name] = col.type || col.format || 'unknown';
-                    });
-                }
-
                 const headerRow = columns.map(col => {
-                    const colType = columnTypes[col] || '';
-                    return `<th>${col}${colType ? `<br><span style="font-size: 9px; opacity: 0.7;">(${colType})</span>` : ''}</th>`;
+                    return `<th>${col}</th>`;
                 }).join('');
 
                 const dataRows = table.sampleData.map(row => {
