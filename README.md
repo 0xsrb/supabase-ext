@@ -1,17 +1,6 @@
-# Supabase Security Scanner - Version 2.0
+# Supabase Security Scanner - Version 1.0
 
 A powerful browser extension that scans websites for exposed Supabase credentials and analyzes database security vulnerabilities.
-
----
-
-## 🎉 What's New in V2.0
-
-### Changes Made Today (Jan 31, 2026)
-
-✅ **Removed "Copy as cURL" button** - Simplified UI  
-✅ **Increased data preview from 5 to 15 rows** - Better visibility  
-✅ **Fixed toggle functionality** - Smooth animations and reliable expanding/collapsing  
-✅ **Improved event handling** - More robust with special characters in table names  
 
 ---
 
@@ -31,7 +20,6 @@ A powerful browser extension that scans websites for exposed Supabase credential
 - 💾 **Export Options** - JSON and CSV formats
 
 ### User Experience
-- 🌓 **Dark/Light Theme** - Toggle between themes
 - 🎨 **Modern UI** - Clean, professional interface
 - ⚡ **Fast Scanning** - Optimized performance
 - 📱 **Responsive Design** - Works in any browser window size
@@ -196,7 +184,7 @@ This tool is for **security testing and auditing purposes only**. Only use it on
 
 ## 📈 Stats
 
-- **Version**: 2.0
+- **Version**: 1.0
 - **Last Updated**: January 31, 2026
 - **Total Scans**: [Track this]
 - **Vulnerabilities Found**: [Track this]
