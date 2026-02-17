@@ -1007,13 +1007,20 @@ function showError(message, details = null) {
 }
 
 /**
- * Show a specific view
+ * Show a specific view with smooth transition
  */
 function showView(viewId) {
+    // Remove active from all views
     document.querySelectorAll('.view').forEach(view => {
         view.classList.remove('active');
     });
-    document.getElementById(viewId).classList.add('active');
+
+    // Use requestAnimationFrame to ensure smooth transition
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            document.getElementById(viewId).classList.add('active');
+        });
+    });
 }
 
 /**
