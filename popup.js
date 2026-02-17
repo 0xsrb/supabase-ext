@@ -177,16 +177,33 @@ async function startScan() {
         addLog('Scanning page for JavaScript resources...');
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-        const scanResponse = await chrome.tabs.sendMessage(tab.id, { action: 'scanPage' }).catch(err => {
-            // Suppress "Receiving end does not exist" errors
-            if (chrome.runtime.lastError) {
-                console.log('Content script not loaded, this is expected');
+        // Check if we're on a restricted page
+        if (tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:')) {
+            throw new Error('Cannot scan browser internal pages. Please navigate to a regular website.');
+        }
+
+        // Try to send message to content script
+        let scanResponse = await chrome.tabs.sendMessage(tab.id, { action: 'scanPage' }).catch(async (err) => {
+            // Content script not loaded - inject it manually
+            addLog('Injecting content script...');
+            try {
+                await chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    files: ['content_script.js']
+                });
+
+                // Wait a bit for script to initialize
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                // Try again
+                return await chrome.tabs.sendMessage(tab.id, { action: 'scanPage' });
+            } catch (injectError) {
+                return { success: false, error: 'Failed to inject content script: ' + injectError.message };
             }
-            return { success: false, error: 'Content script not loaded' };
         });
 
-        if (!scanResponse.success) {
-            throw new Error('Failed to scan page: ' + scanResponse.error);
+        if (!scanResponse || !scanResponse.success) {
+            throw new Error('Failed to scan page: ' + (scanResponse?.error || 'Unknown error'));
         }
 
         const resources = scanResponse.data;
