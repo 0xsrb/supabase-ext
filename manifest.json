@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Supabase Exposure Check",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "description": "Detects exposed Supabase credentials and analyzes database security",
   "permissions": [
     "activeTab",

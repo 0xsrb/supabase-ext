@@ -1,5 +1,76 @@
 // Background Service Worker
+// Version 2.1.0 - Portfolio-Ready Edition
 importScripts('utils.js');
+
+// Debug flag - set to false for production
+const DEBUG = false;
+const log = DEBUG ? console.log.bind(console) : () => {};
+const error = console.error.bind(console); // Always log errors
+
+/**
+ * Fetch with exponential backoff retry
+ * @param {string} url - URL to fetch
+ * @param {Object} options - Fetch options
+ * @param {number} maxRetries - Maximum number of retries
+ * @returns {Promise<Object>} Result object with success flag and response/error
+ */
+async function fetchWithRetry(url, options, maxRetries = 3) {
+    let lastError;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            log(`[Retry] Attempt ${attempt + 1}/${maxRetries} for ${url}`);
+
+            const response = await fetch(url, options);
+
+            // Success
+            if (response.ok) {
+                return { success: true, response };
+            }
+
+            // Rate limited - wait longer
+            if (response.status === 429) {
+                const waitTime = 2000 * Math.pow(2, attempt); // 2s, 4s, 8s
+                log(`[Retry] Rate limited, waiting ${waitTime}ms`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                continue;
+            }
+
+            // Server error - retry
+            if (response.status >= 500) {
+                lastError = new Error(`HTTP ${response.status}`);
+                const waitTime = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                continue;
+            }
+
+            // Client error (4xx) - don't retry
+            return {
+                success: false,
+                response,
+                error: `HTTP ${response.status}`
+            };
+
+        } catch (err) {
+            lastError = err;
+            error(`[Retry] Attempt ${attempt + 1} failed:`, err.message);
+
+            // Don't retry on last attempt
+            if (attempt === maxRetries - 1) {
+                break;
+            }
+
+            // Exponential backoff
+            const waitTime = 1000 * Math.pow(2, attempt);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+    }
+
+    return {
+        success: false,
+        error: lastError?.message || 'Max retries exceeded'
+    };
+}
 
 /**
  * Fetch and analyze external JavaScript files
@@ -128,40 +199,43 @@ function getTableSchema(schemaData, tableName) {
 }
 
 /**
- * Fetch sample data from a table
+ * Fetch sample data from a table with retry logic
  */
 async function fetchTableData(supabaseUrl, apiKey, tableName, limit = 15) {
-    try {
-        const response = await fetch(`${supabaseUrl}/rest/v1/${tableName}?limit=${limit}`, {
-            method: 'GET',
-            headers: {
-                'apikey': apiKey,
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'application/json',
-                'Prefer': 'count=exact'
-            }
-        });
-
-        if (response.status === 401 || response.status === 403) {
-            return {
-                success: false,
-                blocked: true,
-                status: response.status,
-                data: null,
-                rowCount: 0
-            };
+    const url = `${supabaseUrl}/rest/v1/${tableName}?limit=${limit}`;
+    const options = {
+        method: 'GET',
+        headers: {
+            'apikey': apiKey,
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': 'application/json',
+            'Prefer': 'count=exact'
         }
+    };
 
-        if (!response.ok) {
-            return {
-                success: false,
-                blocked: false,
-                status: response.status,
-                error: `HTTP ${response.status}`,
-                data: null,
-                rowCount: 0
-            };
-        }
+    const result = await fetchWithRetry(url, options, 3);
+
+    if (!result.success) {
+        return {
+            success: false,
+            blocked: false,
+            error: result.error,
+            data: null,
+            rowCount: 0
+        };
+    }
+
+    const response = result.response;
+
+    if (response.status === 401 || response.status === 403) {
+        return {
+            success: false,
+            blocked: true,
+            status: response.status,
+            data: null,
+            rowCount: 0
+        };
+    }
 
         const data = await response.json();
 
@@ -182,11 +256,11 @@ async function fetchTableData(supabaseUrl, apiKey, tableName, limit = 15) {
             rowCount: totalCount || (Array.isArray(data) ? data.length : 0),
             sampleData: Array.isArray(data) ? data.slice(0, 15) : []
         };
-    } catch (error) {
+    } catch (err) {
         return {
             success: false,
             blocked: false,
-            error: error.message,
+            error: err.message,
             data: null,
             rowCount: 0
         };
@@ -194,7 +268,7 @@ async function fetchTableData(supabaseUrl, apiKey, tableName, limit = 15) {
 }
 
 /**
- * Perform full security assessment
+ * Perform full security assessment with parallel processing
  */
 async function performSecurityAssessment(supabaseUrl, apiKey, progressCallback) {
     const results = {
@@ -203,7 +277,8 @@ async function performSecurityAssessment(supabaseUrl, apiKey, progressCallback) 
         connection: null,
         tables: [],
         summary: null,
-        errors: []
+        errors: [],
+        partialFailures: [] // Track partial failures
     };
 
     // Test connection
@@ -232,83 +307,116 @@ async function performSecurityAssessment(supabaseUrl, apiKey, progressCallback) 
         tableCount: tableNames.length
     });
 
-    // Analyze each table
-    for (let i = 0; i < tableNames.length; i++) {
-        const tableName = tableNames[i];
-        progressCallback({
-            stage: 'analysis',
-            message: `Analyzing table ${i + 1}/${tableNames.length}: ${tableName}`,
-            current: i + 1,
-            total: tableNames.length,
-            tableName
+    // IMPROVED: Analyze tables in parallel batches
+    const BATCH_SIZE = 5; // Process 5 tables simultaneously
+    const batches = [];
+
+    for (let i = 0; i < tableNames.length; i += BATCH_SIZE) {
+        batches.push(tableNames.slice(i, i + BATCH_SIZE));
+    }
+
+    log(`[Scanner] Processing ${tableNames.length} tables in ${batches.length} batches`);
+
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        const batchStartIndex = batchIndex * BATCH_SIZE;
+
+        // Process entire batch in parallel
+        const batchPromises = batch.map(async (tableName, batchOffset) => {
+            const globalIndex = batchStartIndex + batchOffset;
+
+            progressCallback({
+                stage: 'analysis',
+                message: `Analyzing table ${globalIndex + 1}/${tableNames.length}: ${tableName}`,
+                current: globalIndex + 1,
+                total: tableNames.length,
+                tableName,
+                batchIndex: batchIndex + 1,
+                totalBatches: batches.length
+            });
+
+            try {
+                const tableData = await fetchTableData(supabaseUrl, apiKey, tableName, 15);
+                const tableSchema = getTableSchema(schemaData, tableName);
+
+                log(`[Scanner] Table: ${tableName}, Rows: ${tableData.rowCount}, Columns: ${tableSchema.length}`);
+
+                if (tableData.blocked) {
+                    return {
+                        tableName,
+                        blocked: true,
+                        status: tableData.status,
+                        vulnerabilityLevel: 'protected',
+                        sensitiveFields: [],
+                        exposedColumns: [],
+                        columnCount: 0,
+                        rowCount: 0,
+                        sampleData: []
+                    };
+                } else if (tableData.success && tableData.data) {
+                    const analysis = analyzeTable(tableName, tableData.data, tableSchema);
+                    analysis.blocked = false;
+                    analysis.status = 200;
+                    analysis.rowCount = tableData.rowCount;
+                    return analysis;
+                } else {
+                    // Track partial failure
+                    results.partialFailures.push({
+                        tableName,
+                        error: tableData.error || 'Unknown error'
+                    });
+
+                    return {
+                        tableName,
+                        blocked: false,
+                        error: tableData.error,
+                        vulnerabilityLevel: 'unknown',
+                        sensitiveFields: [],
+                        exposedColumns: [],
+                        columnCount: 0,
+                        rowCount: 0,
+                        sampleData: []
+                    };
+                }
+            } catch (err) {
+                error(`[Scanner] Error analyzing ${tableName}:`, err);
+                results.partialFailures.push({
+                    tableName,
+                    error: err.message
+                });
+
+                return {
+                    tableName,
+                    blocked: false,
+                    error: err.message,
+                    vulnerabilityLevel: 'error',
+                    sensitiveFields: [],
+                    exposedColumns: [],
+                    columnCount: 0,
+                    rowCount: 0,
+                    sampleData: []
+                };
+            }
         });
 
-        // Small delay to avoid rate limiting
-        if (i > 0) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
+        // Wait for entire batch to complete
+        const batchResults = await Promise.all(batchPromises);
+        results.tables.push(...batchResults);
 
-        const tableData = await fetchTableData(supabaseUrl, apiKey, tableName, 15);
-        const tableSchema = getTableSchema(schemaData, tableName);
-
-        // Debug logging
-        console.log(`[Scanner] Table: ${tableName}`);
-        console.log(`[Scanner] Schema columns:`, tableSchema.length);
-        console.log(`[Scanner] Fetched rows:`, tableData.rowCount);
-
-        if (tableData.blocked) {
-            results.tables.push({
-                tableName,
-                blocked: true,
-                status: tableData.status,
-                vulnerabilityLevel: 'protected',
-                sensitiveFields: [],
-                exposedColumns: [],
-                columnCount: 0,
-                rowCount: 0,
-                sampleData: []
-            });
-        } else if (tableData.success && tableData.data) {
-            const analysis = analyzeTable(tableName, tableData.data, tableSchema);
-            analysis.blocked = false;
-            analysis.status = 200;
-            analysis.rowCount = tableData.rowCount;
-            analysis.sampleData = tableData.sampleData || [];
-            // Don't overwrite exposedColumns - analyzeTable already set it from tableSchema
-            // analysis.exposedColumns is already set correctly in analyzeTable
-            // analysis.columnCount is already set correctly in analyzeTable
-
-            console.log(`[Scanner] Analysis result for ${tableName}:`, {
-                columnCount: analysis.columnCount,
-                exposedColumns: analysis.exposedColumns.length,
-                rowCount: analysis.rowCount,
-                sampleDataRows: analysis.sampleData.length,
-                vulnerabilityLevel: analysis.vulnerabilityLevel
-            });
-
-            if (analysis.sampleData.length > 0) {
-                console.log(`[Scanner] Sample data for ${tableName}:`, analysis.sampleData[0]);
-            }
-
-            results.tables.push(analysis);
-        } else {
-            results.tables.push({
-                tableName,
-                blocked: false,
-                error: tableData.error,
-                vulnerabilityLevel: 'unknown',
-                sensitiveFields: [],
-                exposedColumns: [],
-                columnCount: 0,
-                rowCount: 0,
-                sampleData: []
-            });
+        // Small delay between batches to respect rate limits
+        if (batchIndex < batches.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 200));
         }
     }
 
     // Generate summary
     results.summary = generateSummary(results.tables);
-    progressCallback({ stage: 'complete', message: 'Scan complete', summary: results.summary });
+    progressCallback({
+        stage: 'complete',
+        message: 'Scan complete',
+        summary: results.summary,
+        partialFailures: results.partialFailures.length
+    });
 
     return results;
 }

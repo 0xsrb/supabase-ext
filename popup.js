@@ -1,8 +1,33 @@
 // Popup script - Main UI logic
+// Version 2.1.0 - Portfolio-Ready Edition
+
+// Debug flag - set to false for production
+const DEBUG = false;
+const log = DEBUG ? console.log.bind(console) : () => {};
+const error = console.error.bind(console); // Always log errors
 
 let scanResults = null;
 let currentDomain = '';
 let scanCancelled = false;
+let scanStartTime = null;
+
+/**
+ * Debounce utility function
+ * @param {Function} func - Function to debounce
+ * @param {number} wait - Wait time in milliseconds
+ * @returns {Function} Debounced function
+ */
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
 
 // Initialize popup
 document.addEventListener('DOMContentLoaded', async () => {
@@ -22,6 +47,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('downloadReport').addEventListener('click', downloadReport);
     document.getElementById('downloadCSV').addEventListener('click', downloadCSV);
     document.getElementById('downloadPDF').addEventListener('click', downloadPDF);
+    document.getElementById('downloadMigration').addEventListener('click', downloadMigrationSQL);
     document.getElementById('newScan').addEventListener('click', resetToScan);
     document.getElementById('retryButton').addEventListener('click', startScan);
     document.getElementById('themeToggle').addEventListener('click', toggleTheme);
@@ -30,9 +56,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Set up collapsible sections
     setupCollapsibleSections();
 
-    // Filter listeners
-    document.getElementById('tableSearch').addEventListener('input', applyFilters);
+    // Filter listeners - with debounce for better performance
+    document.getElementById('tableSearch').addEventListener('input', debounce(applyFilters, 300));
     document.getElementById('vulnerableOnly').addEventListener('change', applyFilters);
+
+    // Keyboard shortcuts
+    setupKeyboardShortcuts();
 
     // Listen for progress updates
     chrome.runtime.onMessage.addListener((message) => {
@@ -41,6 +70,51 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 });
+
+/**
+ * Setup keyboard shortcuts for power users
+ */
+function setupKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        // Ctrl/Cmd + S - Start scan
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            const scanView = document.getElementById('scanView');
+            if (scanView.classList.contains('active')) {
+                startScan();
+            }
+        }
+
+        // Ctrl/Cmd + E - Export JSON
+        if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+            e.preventDefault();
+            const resultsView = document.getElementById('resultsView');
+            if (resultsView.classList.contains('active') && scanResults) {
+                downloadReport();
+            }
+        }
+
+        // Ctrl/Cmd + F - Focus search
+        if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+            e.preventDefault();
+            const searchInput = document.getElementById('tableSearch');
+            if (searchInput && searchInput.offsetParent !== null) {
+                searchInput.focus();
+                searchInput.select();
+            }
+        }
+
+        // Escape - Close expanded tables
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.table-details.expanded').forEach(details => {
+                details.classList.remove('expanded');
+            });
+            document.querySelectorAll('.expand-icon').forEach(icon => {
+                icon.textContent = '▼';
+            });
+        }
+    });
+}
 
 /**
  * Theme Management
@@ -78,11 +152,15 @@ function setTheme(theme) {
  */
 async function startScan() {
     scanCancelled = false;
+    scanStartTime = Date.now(); // Track start time for ETA calculation
     showView('progressView');
 
     // Reset progress stages
     resetProgressStages();
     updateStage('credentials', 'active');
+
+    // Show loading skeleton
+    showLoadingSkeleton();
 
     // Show "Scanning in progress" message
     const progressText = document.getElementById('progressText');
@@ -210,30 +288,78 @@ async function startScan() {
             displayResults();
         }, 500);
 
-    } catch (error) {
-        console.error('Scan error:', error);
+    } catch (err) {
+        error('Scan error:', err);
         const progressText = document.getElementById('progressText');
         progressText.classList.remove('scanning');
-        showError(error.message);
+
+        // Enhanced error messages with troubleshooting guidance
+        let userMessage = 'Scan failed';
+        let details = null;
+
+        if (err.message.includes('No Supabase credentials')) {
+            userMessage = 'No Supabase credentials found on this page';
+            details = 'Make sure:\n• The page uses Supabase\n• The page has fully loaded\n• JavaScript is enabled';
+        } else if (err.message.includes('API keys')) {
+            userMessage = 'Found Supabase URL but no API key';
+            details = 'The page may be using server-side authentication.\nTry scanning a different page or check the Network tab.';
+        } else if (err.message.includes('Assessment failed')) {
+            userMessage = 'Failed to connect to Supabase API';
+            details = `Error: ${err.message}\n\nPossible causes:\n• Invalid API key\n• Network connectivity issues\n• CORS restrictions`;
+        } else if (err.message.includes('cancelled')) {
+            userMessage = 'Scan cancelled by user';
+            details = null;
+        } else {
+            userMessage = 'An unexpected error occurred';
+            details = err.message;
+        }
+
+        showError(userMessage, details);
     }
 }
 
 /**
- * Update progress from background worker
+ * Update progress from background worker with enhanced feedback
  */
 function updateProgress(progress) {
+    const progressText = document.getElementById('progressText');
+
     if (progress.stage === 'connection') {
         addLog(progress.message);
         updateProgressBar(45);
+        progressText.textContent = '🔍 Testing connection...';
     } else if (progress.stage === 'enumeration') {
         addLog(progress.message);
         updateProgressBar(50);
+        progressText.textContent = `📋 Found ${progress.tableCount || 0} tables`;
     } else if (progress.stage === 'analysis') {
-        addLog(progress.message);
+        const percentage = Math.round((progress.current / progress.total) * 100);
+        const batchInfo = progress.batchIndex ? ` [Batch ${progress.batchIndex}/${progress.totalBatches}]` : '';
+
+        addLog(`${progress.message}${batchInfo}`);
+
+        // Calculate ETA if we have enough data
+        let etaText = '';
+        if (progress.current > 0 && scanStartTime) {
+            const elapsed = Date.now() - scanStartTime;
+            const avgTimePerTable = elapsed / progress.current;
+            const remaining = (progress.total - progress.current) * avgTimePerTable;
+            const etaSeconds = Math.ceil(remaining / 1000);
+            etaText = ` - ETA: ${etaSeconds}s`;
+        }
+
+        progressText.textContent = `🔍 Analyzing: ${progress.current}/${progress.total} (${percentage}%)${etaText}`;
+
         const percent = 50 + Math.floor((progress.current / progress.total) * 45);
         updateProgressBar(percent);
     } else if (progress.stage === 'complete') {
         addLog(progress.message);
+        if (progress.partialFailures > 0) {
+            addLog(`⚠️ ${progress.partialFailures} table(s) failed to scan`);
+            progressText.textContent = `✅ Scan complete (${progress.partialFailures} warnings)`;
+        } else {
+            progressText.textContent = '✅ Scan complete!';
+        }
         updateProgressBar(100);
     }
 }
@@ -300,19 +426,72 @@ function displayResults() {
     // Display discovered credentials
     displayCredentials();
 
+    // Add section badges
+    updateSectionBadges(criticalFindings);
+
     // Display tables by category
     applyFilters();
 }
 
 /**
- * Display critical findings section
+ * Update section header badges with counts
+ */
+function updateSectionBadges(criticalFindings) {
+    // Critical findings badge
+    const criticalHeader = document.querySelector('#criticalFindingsSection h3');
+    if (criticalHeader) {
+        const existingBadge = criticalHeader.querySelector('.section-badge');
+        if (existingBadge) existingBadge.remove();
+
+        const badge = document.createElement('span');
+        badge.className = `section-badge ${criticalFindings.length === 0 ? 'zero' : ''}`;
+        badge.textContent = criticalFindings.length;
+        criticalHeader.appendChild(badge);
+    }
+
+    // Credentials badge
+    const credentialsHeader = document.querySelector('#credentialsSection h3');
+    if (credentialsHeader && scanResults) {
+        const existingBadge = credentialsHeader.querySelector('.section-badge');
+        if (existingBadge) existingBadge.remove();
+
+        const credCount = (scanResults.discoveredUrls?.length || 0) + (scanResults.discoveredJwts?.length || 0);
+        const badge = document.createElement('span');
+        badge.className = 'section-badge';
+        badge.textContent = credCount;
+        credentialsHeader.appendChild(badge);
+    }
+
+    // Tables badge
+    const tablesHeader = document.querySelector('#tablesSection h3');
+    if (tablesHeader && scanResults) {
+        const existingBadge = tablesHeader.querySelector('.section-badge');
+        if (existingBadge) existingBadge.remove();
+
+        const badge = document.createElement('span');
+        badge.className = 'section-badge';
+        badge.textContent = scanResults.tables?.length || 0;
+        tablesHeader.appendChild(badge);
+    }
+}
+
+/**
+ * Display critical findings section with enhanced empty state
  */
 function displayCriticalFindings(findings) {
     const container = document.getElementById('criticalFindingsList');
     if (!container) return;
 
     if (findings.length === 0) {
-        container.innerHTML = '<div class="empty-findings">✅ No critical security issues detected</div>';
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">🎉</div>
+                <div class="empty-state-title">No Critical Vulnerabilities Found!</div>
+                <div class="empty-state-description">
+                    All tables are either protected by RLS or contain no sensitive data.
+                </div>
+            </div>
+        `;
         return;
     }
 
@@ -713,6 +892,26 @@ function downloadReport() {
 }
 
 /**
+ * Download automated RLS migration SQL
+ */
+function downloadMigrationSQL() {
+    if (!scanResults || !scanResults.tables) return;
+
+    const migration = generateBulkMigration(scanResults.tables);
+
+    const blob = new Blob([migration], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `supabase-rls-migration-${currentDomain}-${Date.now()}.sql`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    // Show success message
+    log('✅ Migration SQL downloaded successfully');
+}
+
+/**
  * Download report as CSV
  */
 function downloadCSV() {
@@ -762,10 +961,31 @@ function resetToScan() {
 }
 
 /**
- * Show error view
+ * Show error view with enhanced details
+ * @param {string} message - Main error message
+ * @param {string} details - Optional detailed troubleshooting information
  */
-function showError(message) {
+function showError(message, details = null) {
     document.getElementById('errorMessage').textContent = message;
+
+    // Add details section if provided
+    const errorView = document.getElementById('errorView');
+    let detailsEl = errorView.querySelector('.error-details');
+
+    if (details) {
+        if (!detailsEl) {
+            detailsEl = document.createElement('div');
+            detailsEl.className = 'error-details';
+            const container = errorView.querySelector('.error-container');
+            const retryButton = document.getElementById('retryButton');
+            container.insertBefore(detailsEl, retryButton);
+        }
+        detailsEl.innerHTML = `<pre>${details}</pre>`;
+        detailsEl.style.display = 'block';
+    } else if (detailsEl) {
+        detailsEl.style.display = 'none';
+    }
+
     showView('errorView');
 }
 
@@ -900,6 +1120,19 @@ function cancelScan() {
 }
 
 /**
+ * Show loading skeleton while scan initializes
+ */
+function showLoadingSkeleton() {
+    const logOutput = document.getElementById('logOutput');
+    logOutput.innerHTML = `
+        <div class="skeleton skeleton-text" style="width: 80%"></div>
+        <div class="skeleton skeleton-text" style="width: 60%"></div>
+        <div class="skeleton skeleton-text" style="width: 90%"></div>
+        <div class="skeleton skeleton-text" style="width: 70%"></div>
+    `;
+}
+
+/**
  * Setup collapsible sections
  */
 function setupCollapsibleSections() {
@@ -1017,22 +1250,33 @@ function getVulnerabilityExplanation(table) {
 }
 
 /**
- * Copy text to clipboard
+ * Copy text to clipboard with enhanced feedback
  */
 async function copyText(text, button) {
     try {
         await navigator.clipboard.writeText(text);
 
         const originalText = button.innerHTML;
+        const originalTitle = button.title;
+
         button.innerHTML = '✓ Copied';
+        button.title = 'Copied!';
         button.style.background = 'var(--success-bg)';
 
         setTimeout(() => {
             button.innerHTML = originalText;
+            button.title = originalTitle || 'Copy to clipboard';
             button.style.background = '';
         }, 2000);
     } catch (err) {
-        console.error('Failed to copy:', err);
+        error('Failed to copy:', err);
+        button.innerHTML = '✗ Failed';
+        button.style.background = 'var(--danger-bg)';
+
+        setTimeout(() => {
+            button.innerHTML = 'Copy Name';
+            button.style.background = '';
+        }, 2000);
     }
 }
 
