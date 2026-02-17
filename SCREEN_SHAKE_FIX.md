@@ -49,7 +49,7 @@ body {
     padding: 24px;
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.25s ease-in-out, visibility 0.25s ease-in-out;
+    transition: opacity 0.15s ease-in-out, visibility 0.15s ease-in-out;
     overflow-y: auto;
     overflow-x: hidden;
     pointer-events: none;
@@ -114,7 +114,7 @@ function showView(viewId) {
 - Massive performance improvement
 
 ### 4. **Optimized Transitions**
-- Reduced to 0.25s (was 0.3s) - Snappier feel
+- Reduced to 0.15s (was 0.3s) - Very snappy feel
 - Add new view BEFORE removing old - No visual gap
 - Single requestAnimationFrame - Smoother rendering
 
@@ -133,7 +133,7 @@ function showView(viewId) {
 | **Transition smoothness** | ⚠️ Jarring | ✅ Smooth |
 | **GPU acceleration** | ❌ No | ✅ Yes |
 | **Layout recalculation** | ❌ Every switch | ✅ Isolated |
-| **Transition speed** | 0.3s | 0.25s |
+| **Transition speed** | 0.3s | 0.15s |
 | **Visual gap** | ❌ Yes | ✅ No |
 
 ---
@@ -151,11 +151,11 @@ function showView(viewId) {
 ## ✅ Expected Behavior
 
 ### When clicking "Start Security Scan":
-1. ✅ Scan view fades out smoothly (0.25s)
-2. ✅ Progress view fades in smoothly (0.25s)
+1. ✅ Scan view fades out smoothly (0.15s)
+2. ✅ Progress view fades in smoothly (0.15s)
 3. ✅ **ZERO shake or jump**
 4. ✅ Popup stays perfectly stable
-5. ✅ Smooth, professional transition
+5. ✅ Smooth, snappy, professional transition
 
 ---
 
@@ -170,7 +170,8 @@ This solution is:
 
 ---
 
-**Commit**: `1b1ff2b`  
-**Status**: ✅ Production Ready  
+**Commit**: `cdfd45a`
+**Status**: ✅ Production Ready (Optimized)
 **Last Updated**: February 17, 2026
+**Performance**: 0.15s transitions (40% faster than v1)
 
