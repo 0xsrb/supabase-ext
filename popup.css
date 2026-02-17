@@ -45,10 +45,8 @@
 }
 
 body {
-    width: min(600px, 100vw);
-    min-width: 400px;
-    max-width: 800px;
-    min-height: 500px;
+    width: 600px;
+    height: 650px;
     font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
     font-size: 13px;
     color: var(--text-primary);
@@ -56,14 +54,17 @@ body {
     transition: background-color 0.3s, color 0.3s;
     line-height: 1.6;
     position: relative;
+    overflow: hidden;
 }
 
 .container {
     display: flex;
     flex-direction: column;
-    min-height: 500px;
+    height: 100%;
+    width: 100%;
     position: relative;
     z-index: 1;
+    overflow: hidden;
 }
 
 /* Cyber Grid Background Effect */
@@ -165,29 +166,29 @@ header h1 {
 main {
     padding: 24px;
     flex: 1;
-    overflow-y: auto;
-    max-height: 600px;
+    position: relative;
+    min-height: 450px;
+    overflow: hidden;
 }
 
-/* Views */
+/* Views - Absolute positioning for smooth transitions */
 .view {
-    display: none;
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    right: 24px;
+    bottom: 24px;
     opacity: 0;
-    transition: opacity 0.2s ease-in-out;
+    visibility: hidden;
+    transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .view.active {
-    display: block;
-    animation: fadeInView 0.2s ease-in-out forwards;
-}
-
-@keyframes fadeInView {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
+    opacity: 1;
+    visibility: visible;
+    z-index: 10;
 }
 
 /* Scan View */
