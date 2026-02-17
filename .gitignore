@@ -2,6 +2,9 @@
 dump/
 output/
 
+# Internal development documentation
+dev-docs/
+
 # Input files (may contain sensitive URLs)
 sites.txt
 
