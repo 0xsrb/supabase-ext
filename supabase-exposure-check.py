@@ -12,6 +12,7 @@ from urllib.parse import urljoin, urlparse
 TIMEOUT = 10
 PAGE_SIZE = 1000
 OUTPUT_DIR = "output"
+VERBOSE = False  # Set via --verbose flag
 
 COMMON_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; SupabaseScanner/1.0)"
@@ -194,15 +195,26 @@ def extract_supabase_urls(content):
     return list(urls)
 
 def scan_js(js_url):
+    log_verbose(f"Scanning: {js_url}")
     r = safe_get(js_url)
     if not r:
+        log_verbose(f"Failed to fetch: {js_url}")
         return [], []
 
-    content = r.text
-    return (
-        JWT_REGEX.findall(content),
-        extract_supabase_urls(content)
-    )
+    try:
+        content = r.text
+        jwts = JWT_REGEX.findall(content)
+        urls = extract_supabase_urls(content)
+
+        if jwts:
+            log_verbose(f"Found {len(jwts)} JWT(s) in {js_url}")
+        if urls:
+            log_verbose(f"Found {len(urls)} Supabase URL(s) in {js_url}")
+
+        return jwts, urls
+    except Exception as e:
+        log_verbose(f"Error parsing {js_url}: {e}")
+        return [], []
 
 # ================== VULNERABILITY ASSESSMENT ==================
 
@@ -343,15 +355,35 @@ def analyze_table_for_sensitive_data(rows, max_samples=100):
 # ================== SUPABASE ENUM / DUMP ==================
 
 def get_tables(base_url, headers):
-    r = safe_get(f"{base_url}/rest/v1/", headers=headers)
-    if not r or r.status_code != 200:
-        raise Exception("Cannot enumerate tables")
+    url = f"{base_url}/rest/v1/"
+    log_verbose(f"Enumerating tables from: {url}")
 
-    return [
-        p.strip("/")
-        for p in r.json().get("paths", {})
-        if not p.startswith("/rpc") and p != "/"
-    ]
+    r = safe_get(url, headers=headers)
+    if not r:
+        raise Exception(f"Cannot connect to Supabase API: {url}")
+
+    if r.status_code != 200:
+        raise Exception(f"Cannot enumerate tables (HTTP {r.status_code}): {r.text[:200]}")
+
+    try:
+        data = r.json()
+        paths = data.get("paths", {})
+
+        if not paths:
+            log_verbose(f"API response: {data}")
+            raise Exception("No 'paths' in OpenAPI schema - API may have changed")
+
+        tables = [
+            p.strip("/")
+            for p in paths
+            if not p.startswith("/rpc") and p != "/"
+        ]
+
+        log_verbose(f"Found tables: {tables}")
+        return tables
+
+    except json.JSONDecodeError as e:
+        raise Exception(f"Invalid JSON response from API: {e}")
 
 def dump_table(base_url, table, headers):
     rows = []
@@ -393,6 +425,14 @@ def scan_site(site_url):
     }
 
     js_files = get_js_files(site_url)
+    print(f"  [*] Found {len(js_files)} JavaScript files to scan")
+    log_verbose(f"JS files: {js_files[:5]}...")  # Show first 5
+
+    if not js_files:
+        print("  [!] No JavaScript files found on page")
+        print("  [!] Site may use dynamic loading or SSR")
+        write_json(site_dir, "findings.json", findings)
+        return
 
     for js in js_files:
         jwts, supabase = scan_js(js)
@@ -402,8 +442,17 @@ def scan_site(site_url):
     findings["jwts"] = list(set(findings["jwts"]))
     findings["supabase_urls"] = list(set(findings["supabase_urls"]))
 
-    if not findings["jwts"] or not findings["supabase_urls"]:
-        print("  [-] No exposed Supabase JWT found")
+    # More detailed feedback
+    if not findings["supabase_urls"]:
+        print("  [-] No Supabase URLs found in JavaScript files")
+        log_verbose(f"Scanned {len(js_files)} JS files")
+        write_json(site_dir, "findings.json", findings)
+        return
+
+    if not findings["jwts"]:
+        print(f"  [-] No JWTs found (found {len(findings['supabase_urls'])} Supabase URL(s))")
+        log_verbose(f"Supabase URLs: {findings['supabase_urls']}")
+        print("  [!] Site uses Supabase but JWT is not exposed in client-side code")
         write_json(site_dir, "findings.json", findings)
         return
 
@@ -423,6 +472,11 @@ def scan_site(site_url):
     try:
         tables = get_tables(base_url, supabase_headers)
         print(f"  [+] Found {len(tables)} tables")
+
+        if not tables:
+            print("  [!] No tables found in database")
+            write_json(site_dir, "findings.json", findings)
+            return
 
         for table in tables:
             rows, status = dump_table(base_url, table, supabase_headers)
@@ -465,6 +519,13 @@ def scan_site(site_url):
 
     except Exception as e:
         print(f"  [-] Supabase error: {e}")
+        log_verbose(f"Full error: {type(e).__name__}: {str(e)}")
+
+        # Still write findings even if scan failed
+        findings["error"] = str(e)
+        findings["error_type"] = type(e).__name__
+        write_json(site_dir, "findings.json", findings)
+        return
 
     # Calculate overall vulnerability assessment
     vulnerable_tables = [s for s in summary if s.get("vulnerable", False)]
@@ -505,6 +566,11 @@ def scan_site(site_url):
 
 # ================== UTILS ==================
 
+def log_verbose(message):
+    """Print message only if verbose mode is enabled."""
+    if VERBOSE:
+        print(f"  [DEBUG] {message}")
+
 def write_json(dir_path, name, data):
     os.makedirs(dir_path, exist_ok=True)
     with open(os.path.join(dir_path, name), "w") as f:
@@ -529,6 +595,11 @@ def parse_args():
         default=OUTPUT_DIR,
         help=f"Output directory (default: {OUTPUT_DIR})"
     )
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Enable verbose output for debugging"
+    )
     return parser.parse_args()
 
 def get_sites_from_file(file_path):
@@ -543,8 +614,9 @@ def get_sites_from_file(file_path):
 
 def main():
     args = parse_args()
-    global OUTPUT_DIR
+    global OUTPUT_DIR, VERBOSE
     OUTPUT_DIR = args.output
+    VERBOSE = args.verbose if hasattr(args, 'verbose') else False
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     sites = []
