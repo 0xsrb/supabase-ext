@@ -164,31 +164,33 @@ header h1 {
 
 /* Main Content */
 main {
-    padding: 24px;
     flex: 1;
     position: relative;
-    min-height: 450px;
     overflow: hidden;
 }
 
 /* Views - Absolute positioning for smooth transitions */
 .view {
+    display: block;  /* Always rendered, just hidden */
     position: absolute;
-    top: 24px;
-    left: 24px;
-    right: 24px;
-    bottom: 24px;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 24px;  /* Padding on views instead of main */
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
     overflow-y: auto;
     overflow-x: hidden;
+    pointer-events: none;  /* Prevent interaction when hidden */
 }
 
 .view.active {
     opacity: 1;
     visibility: visible;
     z-index: 10;
+    pointer-events: auto;  /* Enable interaction when visible */
 }
 
 /* Scan View */
