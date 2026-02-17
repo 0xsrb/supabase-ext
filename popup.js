@@ -1010,15 +1010,24 @@ function showError(message, details = null) {
  * Show a specific view with smooth transition
  */
 function showView(viewId) {
-    // Remove active from all views
-    document.querySelectorAll('.view').forEach(view => {
-        view.classList.remove('active');
-    });
+    const targetView = document.getElementById(viewId);
+    const currentView = document.querySelector('.view.active');
+
+    // If same view, do nothing
+    if (currentView && currentView.id === viewId) {
+        return;
+    }
+
+    // Add the new view first (it will be hidden with opacity: 0)
+    targetView.classList.add('active');
 
     // Use requestAnimationFrame to ensure smooth transition
     requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-            document.getElementById(viewId).classList.add('active');
+        // Remove active from all other views
+        document.querySelectorAll('.view').forEach(view => {
+            if (view.id !== viewId) {
+                view.classList.remove('active');
+            }
         });
     });
 }

@@ -45,18 +45,18 @@
 }
 
 body {
-    width: 600px;
-    min-width: 600px;
-    max-width: 600px;
-    height: 650px;
-    min-height: 650px;
-    max-height: 650px;
+    width: 600px !important;
+    min-width: 600px !important;
+    max-width: 600px !important;
+    height: 650px !important;
+    min-height: 650px !important;
+    max-height: 650px !important;
     font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
     font-size: 13px;
     color: var(--text-primary);
     background: var(--bg-color);
     line-height: 1.6;
-    overflow: hidden;
+    overflow: hidden !important;
     margin: 0;
     padding: 0;
 }
@@ -69,6 +69,7 @@ body {
     position: relative;
     z-index: 1;
     overflow: hidden;
+    contain: layout size style;
 }
 
 /* Cyber Grid Background Effect */
@@ -172,30 +173,33 @@ main {
     flex: 1;
     position: relative;
     overflow: hidden;
+    min-height: 0;
 }
 
 /* Views - Absolute positioning for smooth transitions */
 .view {
-    display: block;  /* Always rendered, just hidden */
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    padding: 24px;  /* Padding on views instead of main */
+    padding: 24px;
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+    transition: opacity 0.25s ease-in-out, visibility 0.25s ease-in-out;
     overflow-y: auto;
     overflow-x: hidden;
-    pointer-events: none;  /* Prevent interaction when hidden */
+    pointer-events: none;
+    will-change: opacity;
+    transform: translateZ(0);
+    backface-visibility: hidden;
 }
 
 .view.active {
     opacity: 1;
     visibility: visible;
     z-index: 10;
-    pointer-events: auto;  /* Enable interaction when visible */
+    pointer-events: auto;
 }
 
 /* Scan View */
